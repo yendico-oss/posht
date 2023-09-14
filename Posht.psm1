@@ -4,7 +4,7 @@ $Script:ApiConfig = $null
 $Script:ApiSession = $null
 $Script:ApiConfigFileName = "api-requests.json"
 $Script:ApiTitleForegroundColor = [System.ConsoleColor]::Magenta
-$Script:ApiTitleBackgroundColor = [System.ConsoleColor]::DarkGray
+$Script:ApiTitleBackgroundColor = [System.ConsoleColor]::Black
 
 #endregion
 
@@ -546,7 +546,7 @@ function Show-ApiRequest {
       $SelectedRequest | Invoke-ApiRequest
     }
     "Details" {
-      $SelectedRequest | Format-Table
+      $SelectedRequest
     }
     "Remove" {
       $SelectedRequest | Remove-ApiRequest
