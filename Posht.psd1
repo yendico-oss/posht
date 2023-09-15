@@ -33,7 +33,7 @@ Copyright = '(c) Yendico AG. All rights reserved.'
 Description = 'Module which helps with testing http APIs directly through powershell (Think of Postman but completely integrated into PS, no additional GUI needed). All past requests are getting saved and grouped by "BaseUrl". User can select past requests and rerun them. BaseUrl and Headers can be changed for groups of requests etc.'
 
 # Minimum version of the PowerShell engine required by this module
-PowerShellVersion = '7.1.3'
+PowerShellVersion = '7.2'
 
 # Name of the PowerShell host required by this module
 # PowerShellHostName = ''
@@ -75,7 +75,7 @@ FunctionsToExport = @("Get-ApiCollection", "Get-ApiRequest", "Show-ApiRequest", 
 CmdletsToExport = @()
 
 # Variables to export from this module
-VariablesToExport = '*'
+VariablesToExport = ''
 
 # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
 AliasesToExport = @()
