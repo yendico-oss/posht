@@ -30,7 +30,7 @@ CompanyName = 'Yendico AG'
 Copyright = '(c) Yendico AG. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'Module which helps with testing http APIs directly through powershell (Think of Postman but completely integrated into PS, no additional GUI needed). All past requests are getting saved and grouped by "BaseUrl". User can select past requests and rerun them. BaseUrl and Headers can be changed for groups of requests etc.'
+Description = 'Module which helps with testing http(s) APIs directly through powershell (Think of Postman but completely integrated into PS, no additional GUI needed). All past requests are getting saved and grouped by "BaseUrl". User can select past requests and rerun them. BaseUrl and Headers can be changed for groups of requests etc.'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '7.2'
@@ -95,7 +95,7 @@ PrivateData = @{
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
-        Tags = @("http", "api", "rest")
+        Tags = @("http", "api", "rest", "test")
 
         # A URL to the license for this module.
         # LicenseUri = ''
