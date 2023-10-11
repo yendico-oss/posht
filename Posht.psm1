@@ -4,7 +4,7 @@ $Script:ApiConfig = $null
 $Script:ApiSession = $null
 $Script:ApiConfigFileName = "api-requests.json"
 $Script:ApiTitleForegroundColor = [System.ConsoleColor]::Magenta
-$Script:ApiTitleBackgroundColor = [System.ConsoleColor]::DarkGray
+$Script:ApiTitleBackgroundColor = [System.ConsoleColor]::Black
 
 #endregion
 
@@ -410,6 +410,30 @@ function Write-ApiHeader {
   Write-Host ("-" * $Length)
 }
 
+function CollectionUriArgCompleter {
+  param ( $commandName,
+    $parameterName,
+    $wordToComplete,
+    $commandAst,
+    $fakeBoundParameters )
+
+  # NOTE: can only use exported functions here!!!
+  $Collections = Get-ApiCollection
+  $Collections | Where-Object { $_.BaseUri -like "$wordToComplete*" } | ForEach-Object { $_.BaseUri }
+}
+
+function RequestUriArgCompleter {
+  param ( $commandName,
+    $parameterName,
+    $wordToComplete,
+    $commandAst,
+    $fakeBoundParameters )
+
+  # NOTE: can only use exported functions here!!!
+  $Requests = Get-ApiRequest
+  $Requests | Where-Object { $_.GetUri() -like "$wordToComplete*" } | ForEach-Object { $_.GetUri() }
+}
+
 #endregion
 
 #region public functions
@@ -453,6 +477,7 @@ function Get-ApiCollection {
     return $ApiConfig.Collections.Values
   }
 }
+Register-ArgumentCompleter -CommandName Get-ApiCollection -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
 
 <#
 .SYNOPSIS
@@ -499,6 +524,7 @@ function Get-ApiRequest {
 
   return $Requests
 }
+Register-ArgumentCompleter -CommandName Get-ApiRequest -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
 
 <#
 .SYNOPSIS
@@ -546,7 +572,7 @@ function Show-ApiRequest {
       $SelectedRequest | Invoke-ApiRequest
     }
     "Details" {
-      $SelectedRequest | Format-Table
+      $SelectedRequest
     }
     "Remove" {
       $SelectedRequest | Remove-ApiRequest
@@ -611,6 +637,7 @@ function Update-ApiCollectionBaseUri {
     Save-ApiConfig
   }
 }
+Register-ArgumentCompleter -CommandName Update-ApiCollectionBaseUri -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
 
 <#
 .SYNOPSIS
@@ -653,6 +680,7 @@ function Update-ApiCollectionHeaders {
     Save-ApiConfig
   }
 }
+Register-ArgumentCompleter -CommandName Update-ApiCollectionHeaders -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
 
 <#
 .SYNOPSIS
@@ -795,6 +823,7 @@ function Invoke-ApiRequest {
 
   $Response
 }
+Register-ArgumentCompleter -CommandName Invoke-ApiRequest -ParameterName Uri -ScriptBlock { RequestUriArgCompleter @args }
 
 <#
 .SYNOPSIS
@@ -856,7 +885,7 @@ function Remove-ApiRequest {
 
   $RequestKey = $Request.GetCollectionKey()
   $RequestToDelete = $Collection.Requests[$RequestKey]
-  if($null -eq $RequestToDelete){
+  if ($null -eq $RequestToDelete) {
     Write-Verbose "Did not find request for $RequestKey"
     return
   }
@@ -901,6 +930,7 @@ function Remove-ApiCollection {
 
   Write-Verbose "Deleted collection $BaseUri"
 }
+Register-ArgumentCompleter -CommandName Remove-ApiCollection -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
 
 <#
 .SYNOPSIS
@@ -918,7 +948,7 @@ function Get-ApiSessionCookies {
   param ()
 
   $Session = Get-ApiSession
-  if($null -eq $Session){
+  if ($null -eq $Session) {
     Write-Verbose "No session at the moment"
     return
   }
