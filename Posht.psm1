@@ -2,7 +2,7 @@
 
 $Script:ApiConfig = $null
 $Script:ApiSession = $null
-$Script:ApiConfigFileName = "api-requests.json"
+$Script:ApiConfigFileName = "posht_requests.json"
 $Script:ApiTitleForegroundColor = [System.ConsoleColor]::Magenta
 $Script:ApiTitleBackgroundColor = [System.ConsoleColor]::Black
 
@@ -190,7 +190,13 @@ function Set-ApiSession {
 }
 
 function Get-ApiConfigFilePath {
-  return Join-Path -Path (Get-Location).Path -ChildPath $Script:ApiConfigFileName
+  $LocalPath = Join-Path -Path (Get-Location).Path -ChildPath $Script:ApiConfigFileName
+  if(Test-Path -Path $LocalPath){
+    return $LocalPath
+  }
+  else {
+    return Join-Path -Path $env:USERPROFILE -ChildPath $Script:ApiConfigFileName
+  }
 }
 
 function New-ApiConfig {
