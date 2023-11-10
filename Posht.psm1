@@ -175,10 +175,6 @@ function Get-ApiSession {
   return $Script:ApiSession
 }
 
-function Clear-ApiSession {
-  $Script:ApiSession = $null
-}
-
 function Set-ApiSession {
   [CmdletBinding()]
   param (
@@ -440,9 +436,28 @@ function RequestUriArgCompleter {
   $Requests | Where-Object { $_.GetUri() -like "$wordToComplete*" } | ForEach-Object { $_.GetUri() }
 }
 
+function HashtableToString {
+  param ( 
+    [hashtable]$Hashtable
+  )
+
+  if($null -eq $Hashtable) {
+    return "";
+  }
+  
+  $Result = ""
+
+  $Hashtable.Keys | ForEach-Object { $Result += "$_=$($Hashtable[$_])," }
+  return $Result
+}
+
 #endregion
 
 #region public functions
+
+function Clear-ApiSession {
+  $Script:ApiSession = $null
+}
 
 <#
 .SYNOPSIS
@@ -793,11 +808,10 @@ function Invoke-ApiRequest {
     }
   }
 
-
   Save-ApiConfig
 
   Write-Verbose "$Request"
-  Write-Verbose "Resolved Headers: $ResolvedHeaders"
+  Write-Verbose "Resolved Headers: $(HashtableToString -Hashtable $ResolvedHeaders)"
 
   $RestMethodArgs = [hashtable]@{
     Method               = $Request.Method
