@@ -101,8 +101,9 @@ class ApiConfig {
   ApiConfig() {
     # empty/new config
     $this.DefaultHeaders = [hashtable]@{
-      "accept"       = "application/json"
-      "content-type" = "application/json"
+      "accept"        = "application/json"
+      "content-type"  = "application/json"
+      "Cache-Control" = "no-store"
     }
     $this.Collections = [hashtable]@{}
     $this.LastUpdate = Get-Date
@@ -187,7 +188,7 @@ function Set-ApiSession {
 
 function Get-ApiConfigFilePath {
   $LocalPath = Join-Path -Path (Get-Location).Path -ChildPath $Script:ApiConfigFileName
-  if(Test-Path -Path $LocalPath){
+  if (Test-Path -Path $LocalPath) {
     return $LocalPath
   }
   else {
@@ -232,6 +233,10 @@ function Read-ApiConfig {
 }
 
 function Save-ApiConfig {
+  if($null -eq $Script:ApiConfig){
+    return;
+  }
+
   $ConfigFilePath = Get-ApiConfigFilePath
   $Script:ApiConfig.LastUpdate = Get-Date
   $Script:ApiConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $ConfigFilePath
@@ -441,7 +446,7 @@ function HashtableToString {
     [hashtable]$Hashtable
   )
 
-  if($null -eq $Hashtable) {
+  if ($null -eq $Hashtable) {
     return "";
   }
   
@@ -566,7 +571,8 @@ function Show-ApiRequest {
   Show-ApiTrademark
 
   Write-ApiHeader "Requests grouped by collection (Base Uri):"
-  $CollectionItems = ConvertTo-CliMenuItems -Items $ApiConfig.Collections.Values -LabelFunction { param($Col) return "$($Col.BaseUri) ($($Col.Requests.Count) Requests)" }
+  $SortedCollections = $ApiConfig.Collections.Values | Sort-Object -Property BaseUri
+  $CollectionItems = ConvertTo-CliMenuItems -Items $SortedCollections -LabelFunction { param($Col) return "$($Col.BaseUri) ($($Col.Requests.Count) Requests)" }
   $SelectedCollection = Show-CliMenu -Items $CollectionItems
   if ($null -eq $SelectedCollection) {
     Clear-Host
@@ -575,7 +581,9 @@ function Show-ApiRequest {
 
   Clear-Host
   Write-ApiHeader "Requests for uri '$SelectedCollection':"
-  $RequestItems = ConvertTo-CliMenuItems -Items $SelectedCollection.Requests.Values
+
+  $SortedRequests = $SelectedCollection.Requests.Values | Sort-Object -Property Method,Path
+  $RequestItems = ConvertTo-CliMenuItems -Items $SortedRequests
   $SelectedRequest = Show-CliMenu -Items $RequestItems
   if ($null -eq $SelectedRequest) {
     Clear-Host
@@ -584,6 +592,11 @@ function Show-ApiRequest {
 
   Clear-Host
   Write-ApiHeader "Actions for request '$SelectedRequest':"
+  Write-Host "Method: $($SelectedRequest.Method)" -ForegroundColor DarkGray
+  Write-Host "Path: $($SelectedRequest.Path)" -ForegroundColor DarkGray
+  Write-Host "Headers: $(HashtableToString -Hashtable $SelectedRequest.Headers)" -ForegroundColor DarkGray
+  Write-Host "Body: $($SelectedRequest.Body | ConvertTo-Json -Depth 10 -Compress)" -ForegroundColor DarkGray
+  Write-Host ""
   $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Details", "Remove", "Cancel")
   $Action = Show-CliMenu -Items $ActionItems
   Clear-Host
@@ -785,7 +798,6 @@ function Invoke-ApiRequest {
 
   $ApiConfig.AddRequest($Request)
 
-  # TODO extract into method???
   # 1. Default Headers from Api Config
   $ResolvedHeaders = $ApiConfig.GetDefaultHeaders()
   # 2. Collection Headers (can overwrite)
