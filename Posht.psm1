@@ -233,7 +233,7 @@ function Read-ApiConfig {
 }
 
 function Save-ApiConfig {
-  if($null -eq $Script:ApiConfig){
+  if ($null -eq $Script:ApiConfig) {
     return;
   }
 
@@ -417,6 +417,22 @@ function Write-ApiHeader {
   Write-Host ("-" * $Length)
 }
 
+function ToFixedLength {
+  param (
+    [Parameter(Mandatory = $true)]
+    [string]$Text,
+
+    [Parameter(Mandatory = $true)]
+    [int]$Length
+  )
+
+  if($Text.Length -ge $Length){
+    return $Text.Substring(0, $Length)
+  }
+
+  return $Text + (" " * ($Length - $Text.Length))
+}
+
 function CollectionUriArgCompleter {
   param ( $commandName,
     $parameterName,
@@ -581,9 +597,10 @@ function Show-ApiRequest {
 
   Clear-Host
   Write-ApiHeader "Requests for uri '$SelectedCollection':"
-
-  $SortedRequests = $SelectedCollection.Requests.Values | Sort-Object -Property Method,Path
-  $RequestItems = ConvertTo-CliMenuItems -Items $SortedRequests
+  Write-Host "Headers: $(HashtableToString -Hashtable $SelectedCollection.Headers)" -ForegroundColor DarkGray
+  Write-Host ""
+  $SortedRequests = $SelectedCollection.Requests.Values | Sort-Object -Property Method, Path
+  $RequestItems = ConvertTo-CliMenuItems -Items $SortedRequests -LabelFunction { param($Req) return "$(ToFixedLength -Text $Req.Method -Length 8) $($Req.Path) => (Headers: $($Req.Headers.Count), Body: $($null -ne $Req.Body))" }
   $SelectedRequest = Show-CliMenu -Items $RequestItems
   if ($null -eq $SelectedRequest) {
     Clear-Host
@@ -597,13 +614,23 @@ function Show-ApiRequest {
   Write-Host "Headers: $(HashtableToString -Hashtable $SelectedRequest.Headers)" -ForegroundColor DarkGray
   Write-Host "Body: $($SelectedRequest.Body | ConvertTo-Json -Depth 10 -Compress)" -ForegroundColor DarkGray
   Write-Host ""
-  $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Details", "Remove", "Cancel")
+  $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Clipboard", "Details", "Remove", "Cancel")
   $Action = Show-CliMenu -Items $ActionItems
   Clear-Host
 
   switch ($Action) {
     "Run" {
       $SelectedRequest | Invoke-ApiRequest
+    }
+    "Clipboard" {
+      Write-Host "Under development"
+      $Body = if ($SelectedRequest.Body) { "-Body TODO" } else { "" }
+      $Headers = if ($SelectedRequest.Headers) { "-Headers TODO" } else { "" }
+      $PersistSessionCookie = if ($SelectedRequest.PersistSessionCookie) { "-PersistSessionCookie" }else { "" }
+      $Command = "Invoke-ApiRequest -Uri '$($SelectedRequest.GetUri())' -Method $($SelectedRequest.Method) $Body $Headers $PersistSessionCookie" 
+      Write-Host "Selected command is now in your clipboard" -ForegroundColor DarkGray
+      Write-Host $Command -ForegroundColor DarkGray
+      Set-Clipboard -Value $Command
     }
     "Details" {
       $SelectedRequest
