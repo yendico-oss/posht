@@ -349,13 +349,14 @@ function Show-CliMenu {
       [console]::CursorVisible = $false #prevents cursor flickering
       Build-CliMenu $Items $Position $Multiselect $Selection
       While ($VKeyCode -ne 13 -and $VKeyCode -ne 27) {
-        $press = $host.ui.rawui.readkey("NoEcho,IncludeKeyDown")
-        $VKeyCode = $press.virtualkeycode
-        if ($VKeyCode -eq 38 -or $press.Character -eq 'k') { $Position-- } #go up
-        if ($VKeyCode -eq 40 -or $press.Character -eq 'j') { $Position++ } #go down
+        $PressedKey = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        $VKeyCode = $PressedKey.VirtualKeyCode
+        # 38=up-arrow,40=down-arrow,36=home,35=end,27=esc,13=enter
+        if ($VKeyCode -eq 38 -or $PressedKey.Character -eq 'k') { $Position-- } #go up
+        if ($VKeyCode -eq 40 -or $PressedKey.Character -eq 'j') { $Position++ } #go down
         if ($VKeyCode -eq 36) { $Position = 0 } #top
         if ($VKeyCode -eq 35) { $Position = $Items.Count - 1 } #bottom
-        if ($press.Character -eq ' ') { $Selection = Set-CliMenuSelection $Position $Selection }
+        if ($PressedKey.Character -eq ' ') { $Selection = Set-CliMenuSelection $Position $Selection }
         if ($Position -lt 0) { $Position = 0 }
         if ($VKeyCode -eq 27) { $Position = $null }
         if ($Position -ge $Items.Count) { $Position = $Items.Count - 1 }
