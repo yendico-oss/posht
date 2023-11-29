@@ -98,16 +98,16 @@ PrivateData = @{
         Tags = @("http", "api", "rest", "test")
 
         # A URL to the license for this module.
-        # LicenseUri = ''
+        LicenseUri = 'https://github.com/yendico-oss/posht/blob/main/LICENSE.txt'
 
         # A URL to the main website for this project.
-        ProjectUri = 'https://gitlab.com/yendico1/products/powershell/posht'
+        ProjectUri = 'https://github.com/yendico-oss/posht'
 
         # A URL to an icon representing this module.
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'https://gitlab.com/yendico1/products/powershell/posht/-/blob/main/RELEASE_NOTES.md?ref_type=heads'
+        ReleaseNotes = 'https://github.com/yendico-oss/posht/blob/main/RELEASE_NOTES.md'
 
         # Prerelease string of this module
         # Prerelease = ''
