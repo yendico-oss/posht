@@ -1,6 +1,6 @@
 # ![Posht PS Module Banner](/assets/posht_logo_narrow.png)
 
-As a backend (API) developer or also as a consumer of http APIs we need to do a lot of API calls. Also there is quite a lot of repetition and who wants to type `Invoke-Webrequest ...` or `curl ...`, remebering the query arguments or body, over and over again. While there are tools for that (Postman, Insomnia), I was looking for a more integrated approach. I didn't want to switch to my memory hungry Postman instance just for a single http call on my 16GB laptop already running docker workloads...
+As a backend (API) developer or also as a consumer of http APIs we need to do a lot of API calls. Also there is quite a lot of repetition and who wants to type `Invoke-Webrequest ...` or `curl ...`, remembering the query arguments or body, over and over again. While there are tools for that (Postman, Insomnia), I was looking for a more integrated approach. I didn't want to switch to my memory hungry Postman instance just for a single http call on my 16GB laptop already running docker workloads...
 
 That's where the Powershell 'Posht' module comes to the rescue. Testing API is now possible directly trough Powershell. You can run it from Visual Studio Code or any other Powershell terminal. The module remembers all past requests and groups them by URL. By showing an in CLI menu it's easy to replay past requests and there are more functions to edit groups of requests (e.g. change a Header for a group of requests).
 
@@ -57,7 +57,7 @@ This two requests are now saved in two collections as they have different base U
 It's also possible to list all the collections or all the requests:
 
 - Get all collections: `Get-ApiCollection`
-- Get all requests: `Get-ApiRequests`
+- Get all requests: `Get-ApiRequest`
 
 When a request is found which we would like to run again we can use the pipe (`|`) operator:
 
@@ -65,7 +65,7 @@ When a request is found which we would like to run again we can use the pipe (`|
 
 If you prefer a more menu like approach to browse trough existing collections and requests there is the CLI menu:
 
-- Show a menu to browse collections and requests: `Show-ApiRequests`
+- Show a menu to browse collections and requests: `Show-ApiRequest`
 
 ![Posht CLI Menu](/assets/posht_cli_menu.png)
 
