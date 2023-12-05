@@ -587,6 +587,12 @@ function Show-ApiRequest {
   Clear-Host
   Show-ApiTrademark
 
+  if($null -eq $ApiConfig.Collections.Values -or $ApiConfig.Collections.Values.Count -eq 0){
+    Write-Warning "No collections and requests to display! Please make some requests first -> Invoke-ApiRequest..."
+    Write-Host ""
+    return
+  }
+
   Write-ApiHeader "Requests grouped by collection (Base Uri):"
   $SortedCollections = $ApiConfig.Collections.Values | Sort-Object -Property BaseUri
   $CollectionItems = ConvertTo-CliMenuItems -Items $SortedCollections -LabelFunction { param($Col) return "$($Col.BaseUri) ($($Col.Requests.Count) Requests)" }
@@ -597,6 +603,13 @@ function Show-ApiRequest {
   }
 
   Clear-Host
+
+  if($null -eq $SelectedCollection.Requests.Values -or $SelectedCollection.Requests.Values.Count -eq 0){
+    Write-Warning "No requests to display! Please make some requests first -> Invoke-ApiRequest..."
+    Write-Host ""
+    return
+  }
+
   Write-ApiHeader "Requests for uri '$SelectedCollection':"
   Write-Host "Headers: $(HashtableToString -Hashtable $SelectedCollection.Headers)" -ForegroundColor DarkGray
   Write-Host ""
