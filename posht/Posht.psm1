@@ -715,11 +715,11 @@ The BaseUri/Identifier of the collection
 The updated headers
 
 .EXAMPLE
-Update-ApiCollectionHeaders -BaseUri "https://localhost:5001" -Headers @{"X-Tenant"="traco"}
+Update-ApiCollectionHeader -BaseUri "https://localhost:5001" -Headers @{"X-Tenant"="traco"}
 
 .NOTES
 #>
-function Update-ApiCollectionHeaders {
+function Update-ApiCollectionHeader {
   [CmdletBinding()]
   param (
     [Parameter(Mandatory = $true)]
@@ -742,7 +742,7 @@ function Update-ApiCollectionHeaders {
     Save-ApiConfig
   }
 }
-Register-ArgumentCompleter -CommandName Update-ApiCollectionHeaders -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
+Register-ArgumentCompleter -CommandName Update-ApiCollectionHeader -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
 
 <#
 .SYNOPSIS
@@ -1000,10 +1000,10 @@ Returns all session cookies if there is a session
 Returns all session cookies if there is a session
 
 .EXAMPLE
-Get-ApiSessionCookies
+Get-ApiSessionCookie
 
 #>
-function Get-ApiSessionCookies {
+function Get-ApiSessionCookie {
   [CmdletBinding()]
   param ()
 

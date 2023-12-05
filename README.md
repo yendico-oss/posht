@@ -72,7 +72,7 @@ If you prefer a more menu like approach to browse trough existing collections an
 #### Authentication (Cookie based)
 
 - POST request to the auth endpoint and tell Posht to remember it (`-PersistSessionCookie` Parameter): `Invoke-ApiRequest -Method Post -Uri "https://foo.bar/auth" -Body @{ Username="admin"; Password="abc123" } -PersistSessionCookie`
-- Check Session Cookies: `Get-ApiSessionCookies`
+- Check Session Cookies: `Get-ApiSessionCookie`
 
 #### Authentication (Bearer token)
 
