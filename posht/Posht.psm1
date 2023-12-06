@@ -197,10 +197,10 @@ function Get-ApiConfigFilePath {
 }
 
 function New-ApiConfig {
-  $Script:ApiConfig = [ApiConfig]::new()
+  $ApiConfig = [ApiConfig]::new()
 
   Write-Verbose "New ApiConfig initialized"
-  Save-ApiConfig
+  Save-ApiConfig -ApiConfig $ApiConfig
 }
 
 function Get-ApiConfig {
@@ -233,12 +233,19 @@ function Read-ApiConfig {
 }
 
 function Save-ApiConfig {
-  if ($null -eq $Script:ApiConfig) {
+  [CmdletBinding()]
+  param (
+    [Parameter(Mandatory = $true)]
+    [ApiConfig]$ApiConfig
+  )
+
+  if ($null -eq $ApiConfig) {
     return;
   }
 
   $ConfigFilePath = Get-ApiConfigFilePath
-  $Script:ApiConfig.LastUpdate = Get-Date
+  $ApiConfig.LastUpdate = Get-Date
+  $Script:ApiConfig = $ApiConfig
   $Script:ApiConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $ConfigFilePath
   Write-Verbose "ApiConfig saved to $ConfigFilePath"
 }
@@ -427,7 +434,7 @@ function ToFixedLength {
     [int]$Length
   )
 
-  if($Text.Length -ge $Length){
+  if ($Text.Length -ge $Length) {
     return $Text.Substring(0, $Length)
   }
 
@@ -587,7 +594,7 @@ function Show-ApiRequest {
   Clear-Host
   Show-ApiTrademark
 
-  if($null -eq $ApiConfig.Collections.Values -or $ApiConfig.Collections.Values.Count -eq 0){
+  if ($null -eq $ApiConfig.Collections.Values -or $ApiConfig.Collections.Values.Count -eq 0) {
     Write-Warning "No collections and requests to display! Please make some requests first -> Invoke-ApiRequest..."
     Write-Host ""
     return
@@ -604,7 +611,7 @@ function Show-ApiRequest {
 
   Clear-Host
 
-  if($null -eq $SelectedCollection.Requests.Values -or $SelectedCollection.Requests.Values.Count -eq 0){
+  if ($null -eq $SelectedCollection.Requests.Values -or $SelectedCollection.Requests.Values.Count -eq 0) {
     Write-Warning "No requests to display! Please make some requests first -> Invoke-ApiRequest..."
     Write-Host ""
     return
@@ -709,7 +716,7 @@ function Update-ApiCollectionBaseUri {
     }
 
     Write-Verbose "BaseUri updated from '$BaseUri' to '$NewBaseUri'"
-    Save-ApiConfig
+    Save-ApiConfig -ApiConfig $ApiConfig
   }
 }
 Register-ArgumentCompleter -CommandName Update-ApiCollectionBaseUri -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
@@ -752,7 +759,7 @@ function Update-ApiCollectionHeader {
     }
 
     Write-Verbose "Headers updated for collection '$BaseUri'"
-    Save-ApiConfig
+    Save-ApiConfig -ApiConfig $ApiConfig
   }
 }
 Register-ArgumentCompleter -CommandName Update-ApiCollectionHeader -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
@@ -861,7 +868,7 @@ function Invoke-ApiRequest {
     }
   }
 
-  Save-ApiConfig
+  Save-ApiConfig -ApiConfig $ApiConfig
 
   Write-Verbose "$Request"
   Write-Verbose "Resolved Headers: $(HashtableToString -Hashtable $ResolvedHeaders)"
@@ -929,79 +936,105 @@ function Remove-ApiRequest {
     [Parameter(Mandatory = $true, ParameterSetName = "Single")]
     [string]$Uri, # full uri
 
-    [Parameter(Mandatory = $true, ParameterSetName = "Request", ValueFromPipeline = $true)]
-    [ApiRequest]$RequestData
+    [Parameter(Mandatory = $true, ParameterSetName = "Object", ValueFromPipeline = $true)]
+    [ApiRequest]$Request
   )
 
-  $ApiConfig = Get-ApiConfig  
+  begin {
+    $ApiConfig = Get-ApiConfig
+  }
+
+  process {
+    $ResolvedRequest = $null
+    if ($Request) {
+      $ResolvedRequest = $Request
+    }
+    else {
+      $ResolvedRequest = [ApiRequest]::new(
+        @{},
+        $Method,
+        $Uri,
+        $null,
+        $false
+      )
+    }
   
-  $Request = $null
-
-  if ($RequestData) {
-    $Request = $RequestData
-  }
-  else {
-    $Request = [ApiRequest]::new(
-      @{},
-      $Method,
-      $Uri,
-      $null,
-      $false
-    )
-  }
-
-  $Collection = $ApiConfig.Collections[$Request.BaseUri]
-  if ($null -eq $Collection) {
-    Write-Verbose "Did not find collection for BaseUri $BaseUri"
-    return
+    $Collection = $ApiConfig.Collections[$ResolvedRequest.BaseUri]
+    if ($null -eq $Collection) {
+      Write-Verbose "Did not find collection for BaseUri $($ResolvedRequest.BaseUri)"
+      return
+    }
+  
+    $RequestKey = $ResolvedRequest.GetCollectionKey()
+    $RequestToDelete = $Collection.Requests[$RequestKey]
+    if ($null -eq $RequestToDelete) {
+      Write-Verbose "Did not find request $($ResolvedRequest.ToString())"
+      return
+    }
+  
+    $Collection.Requests.Remove($RequestKey)
+    Write-Verbose "Deleted request $($ResolvedRequest.ToString())"
   }
 
-  $RequestKey = $Request.GetCollectionKey()
-  $RequestToDelete = $Collection.Requests[$RequestKey]
-  if ($null -eq $RequestToDelete) {
-    Write-Verbose "Did not find request for $RequestKey"
-    return
+  end {
+    Save-ApiConfig -ApiConfig $ApiConfig
   }
-
-  $Collection.Requests.Remove($RequestKey)
-  Save-ApiConfig
-
-  Write-Verbose "Deleted request $RequestKey"
 }
 
 <#
 .SYNOPSIS
-Delete an entiry collection of requests
+Delete an entire collection of requests
 
 .DESCRIPTION
-Delete an entiry collection of requests
+Delete an entire collection of requests
 
 .PARAMETER BaseUri
 The BaseUri which identifies the collection
 
+.PARAMETER Collection
+An existing collection object or trough pipe
+
 .EXAMPLE
 Remove-ApiCollection -BaseUri http://localhost:5020
+Get-ApiCollection -BaseUri http://localhost:5001 | Remove-ApiCollection
 
 #>
 function Remove-ApiCollection {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true)]
-    [string]$BaseUri
-  )
+    [Parameter(Mandatory = $true, ParameterSetName = "Uri")]
+    [string]$BaseUri,
 
-  $ApiConfig = Get-ApiConfig  
+    [Parameter(Mandatory = $true, ParameterSetName = "Object", ValueFromPipeline = $true)]
+    [ApiCollection]$Collection
+  )
   
-  $Collection = $ApiConfig.Collections[$BaseUri]
-  if ($null -eq $Collection) {
-    Write-Verbose "Did not find collection for BaseUri $BaseUri"
-    return
+  begin {
+    $ApiConfig = Get-ApiConfig
   }
 
-  $ApiConfig.Collections.Remove($BaseUri)
-  Save-ApiConfig
+  process {
+    $ResolvedBaseUri = ""
+    if ($BaseUri) {
+      $ResolvedBaseUri = $BaseUri
+    }
+    else {
+      $ResolvedBaseUri = $Collection.BaseUri
+    }
+  
+    $Collection = $ApiConfig.Collections[$ResolvedBaseUri]
+    if ($null -eq $Collection) {
+      Write-Verbose "Did not find collection with BaseUri $ResolvedBaseUri"
+      return
+    }
+  
+    $ApiConfig.Collections.Remove($ResolvedBaseUri)
+    Write-Verbose "Deleted collection with BaseUri $ResolvedBaseUri"
+  }
 
-  Write-Verbose "Deleted collection $BaseUri"
+  end {
+    Save-ApiConfig -ApiConfig $ApiConfig
+  }
 }
 Register-ArgumentCompleter -CommandName Remove-ApiCollection -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
 
