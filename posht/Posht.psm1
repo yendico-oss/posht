@@ -2,7 +2,8 @@
 
 $Script:ApiConfig = $null
 $Script:ApiSession = $null
-$Script:ApiConfigFileName = "posht_requests.json"
+$Script:ApiConfigFileName = "posht.json"
+$Script:ApiConfigFolder = ".posht"
 $Script:ApiTitleForegroundColor = [System.ConsoleColor]::Magenta
 $Script:ApiTitleBackgroundColor = [System.ConsoleColor]::Black
 
@@ -192,15 +193,8 @@ function Get-ApiConfigFilePath {
     return $LocalPath
   }
   else {
-    return Join-Path -Path $env:USERPROFILE -ChildPath $Script:ApiConfigFileName
+    return Join-Path -Path $HOME -ChildPath $Script:ApiConfigFolder $Script:ApiConfigFileName
   }
-}
-
-function New-ApiConfig {
-  $ApiConfig = [ApiConfig]::new()
-
-  Write-Verbose "New ApiConfig initialized"
-  Save-ApiConfig -ApiConfig $ApiConfig
 }
 
 function Get-ApiConfig {
@@ -236,16 +230,32 @@ function Save-ApiConfig {
   [CmdletBinding()]
   param (
     [Parameter(Mandatory = $true)]
-    [ApiConfig]$ApiConfig
+    [ApiConfig]$ApiConfig,
+
+    [Parameter(Mandatory = $false)]
+    [string]$FullPath
   )
 
   if ($null -eq $ApiConfig) {
     return;
   }
 
-  $ConfigFilePath = Get-ApiConfigFilePath
+  if ($null -eq $FullPath -or $FullPath -eq "") {
+    $ConfigFilePath = Get-ApiConfigFilePath
+  }
+  else {
+    $ConfigFilePath = $FullPath
+  }
+
   $ApiConfig.LastUpdate = Get-Date
   $Script:ApiConfig = $ApiConfig
+
+  $Directory = Split-Path -Path $ConfigFilePath -Parent
+  if(-Not (Test-Path -Path $Directory)){
+    Write-Verbose "Create directory '$Directory'"
+    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+  }
+
   $Script:ApiConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $ConfigFilePath
   Write-Verbose "ApiConfig saved to $ConfigFilePath"
 }
@@ -483,6 +493,43 @@ function HashtableToString {
 #endregion
 
 #region public functions
+
+<#
+.SYNOPSIS
+Creates a new posht config/request file (posht.json)
+
+.DESCRIPTION
+Creates a new posht config/request file (posht.json)
+If the local switch is not specified, file is saved in the user profile path
+
+.PARAMETER Local
+Create and save at current path (instead of user profile path)
+
+.EXAMPLE
+New-ApiConfig
+New-ApiConfig -Local
+
+#>
+function New-ApiConfig {
+  [CmdletBinding()]
+  param (
+    [Parameter(Mandatory = $false)]
+    [switch]$Local
+  )
+
+  Write-Verbose "Clearing ApiConfig Script variable"
+  $Script:ApiConfig = $null
+  $ApiConfig = [ApiConfig]::new()
+  Write-Verbose "New ApiConfig initialized"
+
+  if ($Local) {
+    $LocalPath = Join-Path -Path (Get-Location).Path -ChildPath $Script:ApiConfigFileName
+    Save-ApiConfig -ApiConfig $ApiConfig -FullPath $LocalPath
+  }
+  else {
+    Save-ApiConfig -ApiConfig $ApiConfig
+  }
+}
 
 function Clear-ApiSession {
   $Script:ApiSession = $null

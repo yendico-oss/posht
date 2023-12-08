@@ -69,7 +69,7 @@ PowerShellVersion = '7.2'
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @("Get-ApiCollection", "Get-ApiRequest", "Show-ApiRequest", "Update-ApiCollectionBaseUri", "Update-ApiCollectionHeader", "Invoke-ApiRequest", "Remove-ApiRequest", "Remove-ApiCollection", "Get-ApiSessionCookie", "Clear-ApiSession")
+FunctionsToExport = @("New-ApiConfig", "Get-ApiCollection", "Get-ApiRequest", "Show-ApiRequest", "Update-ApiCollectionBaseUri", "Update-ApiCollectionHeader", "Invoke-ApiRequest", "Remove-ApiRequest", "Remove-ApiCollection", "Get-ApiSessionCookie", "Clear-ApiSession")
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
