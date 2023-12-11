@@ -537,7 +537,8 @@ function New-ApiConfig {
     $FullPath = Get-ApiConfigFilePath -Source UserProfile 
   }
 
-  if ($PSCmdlet.ShouldProcess("This will create a new config file under '$FullPath'. If there is an existing one, it will be overwritten!", $FullPath, 'Initialize new config file (may overwrite exting one)?')) {
+  $FileExists = Test-Path $FullPath
+  if (-Not $FileExists -or $PSCmdlet.ShouldProcess("This will create a new config file under '$FullPath' and overwritte the existing one!", $FullPath, 'Initialize new config file and overwritte the existing one?')) {
     $ApiConfig = [ApiConfig]::new()
     Write-Verbose "New ApiConfig initialized"
 
