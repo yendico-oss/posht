@@ -1,6 +1,5 @@
 #region variables
 
-$Script:ApiConfig = $null
 $Script:ApiSession = $null
 $Script:ApiConfigFileName = "posht.json"
 $Script:ApiConfigFolder = ".posht"
@@ -95,12 +94,14 @@ class ApiCollection {
 }
 
 class ApiConfig {
+  [string] $Id
   [hashtable] $DefaultHeaders
   [hashtable] $Collections
   [datetime] $LastUpdate
 
   ApiConfig() {
     # empty/new config
+    $this.Id = (New-Guid).Guid
     $this.DefaultHeaders = [hashtable]@{
       "accept"        = "application/json"
       "content-type"  = "application/json"
@@ -112,6 +113,11 @@ class ApiConfig {
 
   ApiConfig($ApiConfigRaw) {
     # from json
+    $this.Id = $ApiConfigRaw.Id
+    if($null -eq $this.Id -or $this.Id -eq ""){
+      $this.Id = (New-Guid).Guid
+    }
+
     $this.DefaultHeaders = [hashtable]@{}
     foreach ($Prop in $ApiConfigRaw.DefaultHeaders.PSObject.Properties) {
       $this.DefaultHeaders[$Prop.Name] = $Prop.Value
@@ -187,43 +193,51 @@ function Set-ApiSession {
   $Script:ApiSession = $Session
 }
 
-function Get-ApiConfigFilePath {
-  $LocalPath = Join-Path -Path (Get-Location).Path -ChildPath $Script:ApiConfigFileName
+function Resolve-ApiConfigFilePath {
+  $LocalPath = Get-ApiConfigFilePath -Source Local
   if (Test-Path -Path $LocalPath) {
     return $LocalPath
   }
   else {
-    return Join-Path -Path $HOME -ChildPath $Script:ApiConfigFolder $Script:ApiConfigFileName
+    return (Get-ApiConfigFilePath -Source UserProfile)
+  }
+}
+
+function Get-ApiConfigFilePath {
+  [CmdletBinding()]
+  param (
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("Local", "UserProfile")]
+    [string]$Source
+  )
+
+  switch ($Source) {
+    "Local" {
+      return (Join-Path -Path (Get-Location).Path -ChildPath $Script:ApiConfigFileName)
+    }
+    Default {
+      return (Join-Path -Path $HOME -ChildPath $Script:ApiConfigFolder $Script:ApiConfigFileName)
+    }
   }
 }
 
 function Get-ApiConfig {
-  if ($null -eq $Script:ApiConfig) {
-    Read-ApiConfig
-  }
-  else {
-    $ApiConfigFile = Get-Item -Path (Get-ApiConfigFilePath) -ErrorAction SilentlyContinue
-    if ($ApiConfigFile -and $ApiConfigFile.LastWriteTime -gt $Script:ApiConfig.LastUpdate) {
-      Read-ApiConfig
-    }
-  }
-
-  # TODO timeout or always reading from file?
-  return [ApiConfig]$Script:ApiConfig
+  # No in memory api config at the moment (it is always read from file)
+  return (Read-ApiConfig)
 }
 
 function Read-ApiConfig {
-  $ConfigFilePath = Get-ApiConfigFilePath
+  $ConfigFilePath = Resolve-ApiConfigFilePath
   if (Test-Path -Path $ConfigFilePath) {
     Write-Verbose "Read ApiConfig from $ConfigFilePath"
     $ConfigFile = Get-Content -Path $ConfigFilePath -Raw
 
     $RawApiConfig = $ConfigFile | ConvertFrom-Json -Depth 10
-    $Script:ApiConfig = [ApiConfig]::new($RawApiConfig)
+    return [ApiConfig]::new($RawApiConfig)
   }
   else {
     # no config file found
-    New-ApiConfig
+    return (New-ApiConfig -Confirm:$false)
   }
 }
 
@@ -242,23 +256,21 @@ function Save-ApiConfig {
   }
 
   if ($null -eq $FullPath -or $FullPath -eq "") {
-    $ConfigFilePath = Get-ApiConfigFilePath
+    $ConfigFilePath = Resolve-ApiConfigFilePath
   }
   else {
     $ConfigFilePath = $FullPath
   }
 
   $ApiConfig.LastUpdate = Get-Date
-  $Script:ApiConfig = $ApiConfig
-
   $Directory = Split-Path -Path $ConfigFilePath -Parent
-  if(-Not (Test-Path -Path $Directory)){
+  if (-Not (Test-Path -Path $Directory)) {
     Write-Verbose "Create directory '$Directory'"
     New-Item -ItemType Directory -Path $Directory -Force | Out-Null
   }
 
-  $Script:ApiConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $ConfigFilePath
-  Write-Verbose "ApiConfig saved to $ConfigFilePath"
+  $ApiConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $ConfigFilePath
+  Write-Verbose "ApiConfig saved to $ConfigFilePath with timestamp '$($ApiConfig.LastUpdate)'"
 }
 
 function ConvertTo-CliMenuItems {
@@ -512,23 +524,25 @@ New-ApiConfig -Local
 
 #>
 function New-ApiConfig {
-  [CmdletBinding()]
+  [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
   param (
     [Parameter(Mandatory = $false)]
     [switch]$Local
   )
 
-  Write-Verbose "Clearing ApiConfig Script variable"
-  $Script:ApiConfig = $null
-  $ApiConfig = [ApiConfig]::new()
-  Write-Verbose "New ApiConfig initialized"
-
-  if ($Local) {
-    $LocalPath = Join-Path -Path (Get-Location).Path -ChildPath $Script:ApiConfigFileName
-    Save-ApiConfig -ApiConfig $ApiConfig -FullPath $LocalPath
+  $FullPath = ""
+  if($Local){
+    $FullPath = Get-ApiConfigFilePath -Source Local
+  } else {
+    $FullPath = Get-ApiConfigFilePath -Source UserProfile 
   }
-  else {
-    Save-ApiConfig -ApiConfig $ApiConfig
+
+  if ($PSCmdlet.ShouldProcess("This will create a new config file under '$FullPath'. If there is an existing one, it will be overwritten!", $FullPath, 'Initialize new config file (may overwrite exting one)?')) {
+    $ApiConfig = [ApiConfig]::new()
+    Write-Verbose "New ApiConfig initialized"
+
+    Save-ApiConfig -ApiConfig $ApiConfig -FullPath $FullPath
+    return $ApiConfig
   }
 }
 
@@ -637,6 +651,8 @@ Show-ApiRequest
 .NOTES
 #>
 function Show-ApiRequest {
+  [CmdletBinding()]
+
   $ApiConfig = Get-ApiConfig
 
   Clear-Host
