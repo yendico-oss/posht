@@ -208,6 +208,7 @@ function Get-ApiConfig {
     }
   }
 
+  # TODO timeout or always reading from file?
   return [ApiConfig]$Script:ApiConfig
 }
 

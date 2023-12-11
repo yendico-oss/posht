@@ -34,11 +34,21 @@ By using the `Invoke-ApiRequest`:
   - The BaseUri of a collection can be changed and will apply to all requests within the collection (e.g. switch between environments `https://test.foo.bar`, `https://dev.foo.bar`)
 - Use the CLI menu to conveniently navigate between past requests: `Show-ApiRequest`
 
-> **Note:** The module creates a config/request text file in the user profile path with the name `posht_requests.json`. There are CLI commands to modify the file. Use caution if you edit the file directly.
+### Config / Requests File
+
+The module creates a config & request text (Json) file in the user profile path under `/.posht/posht.json`. There are CLI commands to modify the file. **Use caution** if you edit the file directly.
+
+Default path of the config file: `$Home/.posht/posht.json`
+
+However it's also possible to have multiple 'local' Posht config files (For example if you want to have one per API project and take it under source control). The module will first look for a `posht.json` file in the local directory, if it can't find one, it will look in the $Home path as described above.
+
+> If you want to create a new local config file use the New-ApiConfig function with the '-Local' switch: `New-ApiConfig -Local`
 
 ### Authenticated Requests
 
-When you need to do authenticated requests it's possible to do either Cookie based authentication or with an Authentication header. It's important though to tell Posht to remember the Session Cookie or the Authentication header for coming requests. See [Examples](#authentication-cookie-based) for the details.
+When you need to do authenticated requests it's possible to do either Cookie based authentication or with an Authentication header. It's important though to tell Posht to remember the Session Cookie (`-PersistSession`) or the Authentication header (`-Headers @{Authentication="Bearer xyz"} -SaveHeadersOnCollection`) for coming requests. See [Examples](#authentication-cookie-based) for the details.
+
+Currently Posht only supports one active session at a time. So, if you switch between collections you most probably need to login again.
 
 ### Examples
 
@@ -73,6 +83,7 @@ If you prefer a more menu like approach to browse trough existing collections an
 
 - POST request to the auth endpoint and tell Posht to remember it (`-PersistSessionCookie` Parameter): `Invoke-ApiRequest -Method Post -Uri "https://foo.bar/auth" -Body @{ Username="admin"; Password="abc123" } -PersistSessionCookie`
 - Check Session Cookies: `Get-ApiSessionCookie`
+- Remove Session Cookies: `Clear-ApiSession`
 
 #### Authentication (Bearer token)
 
