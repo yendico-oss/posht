@@ -571,7 +571,7 @@ Get-ApiCollection -BaseUri "https*"
 function Get-ApiCollection {
   [CmdletBinding()]
   param (
-    [Parameter()]
+    [Parameter(Position=0)]
     [string]$BaseUri
   )
 
@@ -615,10 +615,10 @@ Get-ApiRequest -Method "Post"
 function Get-ApiRequest {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $false)]
+    [Parameter(Mandatory = $false, Position=0)]
     [string]$BaseUri = $null,
 
-    [Parameter(Mandatory = $false)]
+    [Parameter(Mandatory = $false, Position=1)]
     [string]$Method = $null
   )
 
@@ -749,10 +749,10 @@ Update-ApiCollectionBaseUri -BaseUri "http://localhost:5020" -NewBaseUri "https:
 function Update-ApiCollectionBaseUri {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position=0, ValueFromPipeline=$true)]
     [string]$BaseUri,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position=1)]
     [string]$NewBaseUri
   )
 
@@ -807,10 +807,10 @@ Update-ApiCollectionHeader -BaseUri "https://localhost:5001" -Headers @{"X-Tenan
 function Update-ApiCollectionHeader {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position=0, ValueFromPipeline=$true)]
     [string]$BaseUri,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position=1)]
     [hashtable]$Headers
   )
 
@@ -878,7 +878,7 @@ function Invoke-ApiRequest {
     [Parameter(ParameterSetName = "Single")]
     [switch]$PersistSessionCookie = $false,
 
-    [Parameter(Mandatory = $true, ParameterSetName = "Single")]
+    [Parameter(Mandatory = $true, Position=0, ParameterSetName = "Single")]
     [string]$Uri, # full uri
 
     [Parameter(ParameterSetName = "Single")]
@@ -994,11 +994,11 @@ $Request | Remove-ApiRequest
 function Remove-ApiRequest {
   [CmdletBinding()]
   param (
-    [Parameter(ParameterSetName = "Single")]
+    [Parameter(ParameterSetName = "Single", Position=1)]
     [ValidateSet("Get", "Put", "Patch", "Post", "Delete")]
     [string]$Method = "Get",
 
-    [Parameter(Mandatory = $true, ParameterSetName = "Single")]
+    [Parameter(Mandatory = $true, Position=0, ParameterSetName = "Single")]
     [string]$Uri, # full uri
 
     [Parameter(Mandatory = $true, ParameterSetName = "Object", ValueFromPipeline = $true)]
@@ -1067,7 +1067,7 @@ Get-ApiCollection -BaseUri http://localhost:5001 | Remove-ApiCollection
 function Remove-ApiCollection {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true, ParameterSetName = "Uri")]
+    [Parameter(Mandatory = $true, Position=0, ParameterSetName = "Uri")]
     [string]$BaseUri,
 
     [Parameter(Mandatory = $true, ParameterSetName = "Object", ValueFromPipeline = $true)]
@@ -1126,5 +1126,12 @@ function Get-ApiSessionCookie {
 
   $Session.Cookies.GetAllCookies()
 }
+
+#endregion
+
+#region alias
+
+New-Alias iar -Value Invoke-ApiRequest -ea silentlycontinue
+New-Alias sar -Value Show-ApiRequest -ea silentlycontinue
 
 #endregion
