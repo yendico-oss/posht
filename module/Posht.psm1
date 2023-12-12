@@ -1,8 +1,8 @@
 #region variables
 
-$Script:ApiConfig = $null
 $Script:ApiSession = $null
-$Script:ApiConfigFileName = "api-requests.json"
+$Script:ApiConfigFileName = "posht.json"
+$Script:ApiConfigFolder = ".posht"
 $Script:ApiTitleForegroundColor = [System.ConsoleColor]::Magenta
 $Script:ApiTitleBackgroundColor = [System.ConsoleColor]::Black
 
@@ -94,15 +94,18 @@ class ApiCollection {
 }
 
 class ApiConfig {
+  [string] $Id
   [hashtable] $DefaultHeaders
   [hashtable] $Collections
   [datetime] $LastUpdate
 
   ApiConfig() {
     # empty/new config
+    $this.Id = (New-Guid).Guid
     $this.DefaultHeaders = [hashtable]@{
-      "accept"       = "application/json"
-      "content-type" = "application/json"
+      "accept"        = "application/json"
+      "content-type"  = "application/json"
+      "Cache-Control" = "no-store"
     }
     $this.Collections = [hashtable]@{}
     $this.LastUpdate = Get-Date
@@ -110,6 +113,11 @@ class ApiConfig {
 
   ApiConfig($ApiConfigRaw) {
     # from json
+    $this.Id = $ApiConfigRaw.Id
+    if($null -eq $this.Id -or $this.Id -eq ""){
+      $this.Id = (New-Guid).Guid
+    }
+
     $this.DefaultHeaders = [hashtable]@{}
     foreach ($Prop in $ApiConfigRaw.DefaultHeaders.PSObject.Properties) {
       $this.DefaultHeaders[$Prop.Name] = $Prop.Value
@@ -175,10 +183,6 @@ function Get-ApiSession {
   return $Script:ApiSession
 }
 
-function Clear-ApiSession {
-  $Script:ApiSession = $null
-}
-
 function Set-ApiSession {
   [CmdletBinding()]
   param (
@@ -189,51 +193,84 @@ function Set-ApiSession {
   $Script:ApiSession = $Session
 }
 
-function Get-ApiConfigFilePath {
-  return Join-Path -Path (Get-Location).Path -ChildPath $Script:ApiConfigFileName
+function Resolve-ApiConfigFilePath {
+  $LocalPath = Get-ApiConfigFilePath -Source Local
+  if (Test-Path -Path $LocalPath) {
+    return $LocalPath
+  }
+  else {
+    return (Get-ApiConfigFilePath -Source UserProfile)
+  }
 }
 
-function New-ApiConfig {
-  $Script:ApiConfig = [ApiConfig]::new()
+function Get-ApiConfigFilePath {
+  [CmdletBinding()]
+  param (
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("Local", "UserProfile")]
+    [string]$Source
+  )
 
-  Write-Verbose "New ApiConfig initialized"
-  Save-ApiConfig
+  switch ($Source) {
+    "Local" {
+      return (Join-Path -Path (Get-Location).Path -ChildPath $Script:ApiConfigFileName)
+    }
+    Default {
+      return (Join-Path -Path $HOME -ChildPath $Script:ApiConfigFolder $Script:ApiConfigFileName)
+    }
+  }
 }
 
 function Get-ApiConfig {
-  if ($null -eq $Script:ApiConfig) {
-    Read-ApiConfig
-  }
-  else {
-    $ApiConfigFile = Get-Item -Path (Get-ApiConfigFilePath) -ErrorAction SilentlyContinue
-    if ($ApiConfigFile -and $ApiConfigFile.LastWriteTime -gt $Script:ApiConfig.LastUpdate) {
-      Read-ApiConfig
-    }
-  }
-
-  return [ApiConfig]$Script:ApiConfig
+  # No in memory api config at the moment (it is always read from file)
+  return (Read-ApiConfig)
 }
 
 function Read-ApiConfig {
-  $ConfigFilePath = Get-ApiConfigFilePath
+  $ConfigFilePath = Resolve-ApiConfigFilePath
   if (Test-Path -Path $ConfigFilePath) {
     Write-Verbose "Read ApiConfig from $ConfigFilePath"
     $ConfigFile = Get-Content -Path $ConfigFilePath -Raw
 
     $RawApiConfig = $ConfigFile | ConvertFrom-Json -Depth 10
-    $Script:ApiConfig = [ApiConfig]::new($RawApiConfig)
+    return [ApiConfig]::new($RawApiConfig)
   }
   else {
     # no config file found
-    New-ApiConfig
+    return (New-ApiConfig -Confirm:$false)
   }
 }
 
 function Save-ApiConfig {
-  $ConfigFilePath = Get-ApiConfigFilePath
-  $Script:ApiConfig.LastUpdate = Get-Date
-  $Script:ApiConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $ConfigFilePath
-  Write-Verbose "ApiConfig saved to $ConfigFilePath"
+  [CmdletBinding()]
+  param (
+    [Parameter(Mandatory = $true)]
+    [ApiConfig]$ApiConfig,
+
+    [Parameter(Mandatory = $false)]
+    [string]$FullPath
+  )
+
+  if ($null -eq $ApiConfig) {
+    return;
+  }
+
+  if ($null -eq $FullPath -or $FullPath -eq "") {
+    $ConfigFilePath = Resolve-ApiConfigFilePath
+  }
+  else {
+    $ConfigFilePath = $FullPath
+  }
+
+  $ApiConfig.LastUpdate = Get-Date
+  $Directory = Split-Path -Path $ConfigFilePath -Parent
+  if (-Not (Test-Path -Path $Directory)) {
+    Write-Verbose "Create directory '$Directory'"
+    New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+  }
+
+  $ApiConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $ConfigFilePath
+  Write-Verbose "ApiConfig saved to $ConfigFilePath with timestamp '$($ApiConfig.LastUpdate)'"
 }
 
 function ConvertTo-CliMenuItems {
@@ -342,13 +379,14 @@ function Show-CliMenu {
       [console]::CursorVisible = $false #prevents cursor flickering
       Build-CliMenu $Items $Position $Multiselect $Selection
       While ($VKeyCode -ne 13 -and $VKeyCode -ne 27) {
-        $press = $host.ui.rawui.readkey("NoEcho,IncludeKeyDown")
-        $VKeyCode = $press.virtualkeycode
-        if ($VKeyCode -eq 38 -or $press.Character -eq 'k') { $Position-- } #go up
-        if ($VKeyCode -eq 40 -or $press.Character -eq 'j') { $Position++ } #go down
+        $PressedKey = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        $VKeyCode = $PressedKey.VirtualKeyCode
+        # 38=up-arrow,40=down-arrow,36=home,35=end,27=esc,13=enter
+        if ($VKeyCode -eq 38 -or $PressedKey.Character -eq 'k') { $Position-- } #go up
+        if ($VKeyCode -eq 40 -or $PressedKey.Character -eq 'j') { $Position++ } #go down
         if ($VKeyCode -eq 36) { $Position = 0 } #top
         if ($VKeyCode -eq 35) { $Position = $Items.Count - 1 } #bottom
-        if ($press.Character -eq ' ') { $Selection = Set-CliMenuSelection $Position $Selection }
+        if ($PressedKey.Character -eq ' ') { $Selection = Set-CliMenuSelection $Position $Selection }
         if ($Position -lt 0) { $Position = 0 }
         if ($VKeyCode -eq 27) { $Position = $null }
         if ($Position -ge $Items.Count) { $Position = $Items.Count - 1 }
@@ -410,6 +448,22 @@ function Write-ApiHeader {
   Write-Host ("-" * $Length)
 }
 
+function ToFixedLength {
+  param (
+    [Parameter(Mandatory = $true)]
+    [string]$Text,
+
+    [Parameter(Mandatory = $true)]
+    [int]$Length
+  )
+
+  if ($Text.Length -ge $Length) {
+    return $Text.Substring(0, $Length)
+  }
+
+  return $Text + (" " * ($Length - $Text.Length))
+}
+
 function CollectionUriArgCompleter {
   param ( $commandName,
     $parameterName,
@@ -434,9 +488,68 @@ function RequestUriArgCompleter {
   $Requests | Where-Object { $_.GetUri() -like "$wordToComplete*" } | ForEach-Object { $_.GetUri() }
 }
 
+function HashtableToString {
+  param ( 
+    [hashtable]$Hashtable
+  )
+
+  if ($null -eq $Hashtable) {
+    return "";
+  }
+  
+  $Result = ""
+
+  $Hashtable.Keys | ForEach-Object { $Result += "$_=$($Hashtable[$_])," }
+  return $Result
+}
+
 #endregion
 
 #region public functions
+
+<#
+.SYNOPSIS
+Creates a new posht config/request file (posht.json)
+
+.DESCRIPTION
+Creates a new posht config/request file (posht.json)
+If the local switch is not specified, file is saved in the user profile path
+
+.PARAMETER Local
+Create and save at current path (instead of user profile path)
+
+.EXAMPLE
+New-ApiConfig
+New-ApiConfig -Local
+
+#>
+function New-ApiConfig {
+  [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  param (
+    [Parameter(Mandatory = $false)]
+    [switch]$Local
+  )
+
+  $FullPath = ""
+  if($Local){
+    $FullPath = Get-ApiConfigFilePath -Source Local
+  } else {
+    $FullPath = Get-ApiConfigFilePath -Source UserProfile 
+  }
+
+  $FileExists = Test-Path $FullPath
+  if (-Not $FileExists -or $PSCmdlet.ShouldProcess("This will create a new config file under '$FullPath' and overwrite the existing one!", $FullPath, 'Initialize new config file and overwrite the existing one?')) {
+    $ApiConfig = [ApiConfig]::new()
+    Write-Verbose "New ApiConfig initialized"
+
+    Save-ApiConfig -ApiConfig $ApiConfig -FullPath $FullPath
+    return $ApiConfig
+  }
+}
+
+function Clear-ApiSession {
+  $Script:ApiSession = $null
+}
 
 <#
 .SYNOPSIS
@@ -458,7 +571,7 @@ Get-ApiCollection -BaseUri "https*"
 function Get-ApiCollection {
   [CmdletBinding()]
   param (
-    [Parameter()]
+    [Parameter(Position=0)]
     [string]$BaseUri
   )
 
@@ -502,10 +615,10 @@ Get-ApiRequest -Method "Post"
 function Get-ApiRequest {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $false)]
+    [Parameter(Mandatory = $false, Position=0)]
     [string]$BaseUri = $null,
 
-    [Parameter(Mandatory = $false)]
+    [Parameter(Mandatory = $false, Position=1)]
     [string]$Method = $null
   )
 
@@ -539,13 +652,22 @@ Show-ApiRequest
 .NOTES
 #>
 function Show-ApiRequest {
+  [CmdletBinding()]
+
   $ApiConfig = Get-ApiConfig
 
   Clear-Host
   Show-ApiTrademark
 
+  if ($null -eq $ApiConfig.Collections.Values -or $ApiConfig.Collections.Values.Count -eq 0) {
+    Write-Warning "No collections and requests to display! Please make some requests first -> Invoke-ApiRequest..."
+    Write-Host ""
+    return
+  }
+
   Write-ApiHeader "Requests grouped by collection (Base Uri):"
-  $CollectionItems = ConvertTo-CliMenuItems -Items $ApiConfig.Collections.Values -LabelFunction { param($Col) return "$($Col.BaseUri) ($($Col.Requests.Count) Requests)" }
+  $SortedCollections = $ApiConfig.Collections.Values | Sort-Object -Property BaseUri
+  $CollectionItems = ConvertTo-CliMenuItems -Items $SortedCollections -LabelFunction { param($Col) return "$($Col.BaseUri) ($($Col.Requests.Count) Requests)" }
   $SelectedCollection = Show-CliMenu -Items $CollectionItems
   if ($null -eq $SelectedCollection) {
     Clear-Host
@@ -553,8 +675,18 @@ function Show-ApiRequest {
   }
 
   Clear-Host
+
+  if ($null -eq $SelectedCollection.Requests.Values -or $SelectedCollection.Requests.Values.Count -eq 0) {
+    Write-Warning "No requests to display! Please make some requests first -> Invoke-ApiRequest..."
+    Write-Host ""
+    return
+  }
+
   Write-ApiHeader "Requests for uri '$SelectedCollection':"
-  $RequestItems = ConvertTo-CliMenuItems -Items $SelectedCollection.Requests.Values
+  Write-Host "Headers: $(HashtableToString -Hashtable $SelectedCollection.Headers)" -ForegroundColor DarkGray
+  Write-Host ""
+  $SortedRequests = $SelectedCollection.Requests.Values | Sort-Object -Property Method, Path
+  $RequestItems = ConvertTo-CliMenuItems -Items $SortedRequests -LabelFunction { param($Req) return "$(ToFixedLength -Text $Req.Method -Length 8) $($Req.Path) => (Headers: $($Req.Headers.Count), Body: $($null -ne $Req.Body))" }
   $SelectedRequest = Show-CliMenu -Items $RequestItems
   if ($null -eq $SelectedRequest) {
     Clear-Host
@@ -563,13 +695,28 @@ function Show-ApiRequest {
 
   Clear-Host
   Write-ApiHeader "Actions for request '$SelectedRequest':"
-  $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Details", "Remove", "Cancel")
+  Write-Host "Method: $($SelectedRequest.Method)" -ForegroundColor DarkGray
+  Write-Host "Path: $($SelectedRequest.Path)" -ForegroundColor DarkGray
+  Write-Host "Headers: $(HashtableToString -Hashtable $SelectedRequest.Headers)" -ForegroundColor DarkGray
+  Write-Host "Body: $($SelectedRequest.Body | ConvertTo-Json -Depth 10 -Compress)" -ForegroundColor DarkGray
+  Write-Host ""
+  $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Clipboard", "Details", "Remove", "Cancel")
   $Action = Show-CliMenu -Items $ActionItems
   Clear-Host
 
   switch ($Action) {
     "Run" {
       $SelectedRequest | Invoke-ApiRequest
+    }
+    "Clipboard" {
+      Write-Host "Under development"
+      $Body = if ($SelectedRequest.Body) { "-Body TODO" } else { "" }
+      $Headers = if ($SelectedRequest.Headers) { "-Headers TODO" } else { "" }
+      $PersistSessionCookie = if ($SelectedRequest.PersistSessionCookie) { "-PersistSessionCookie" }else { "" }
+      $Command = "Invoke-ApiRequest -Uri '$($SelectedRequest.GetUri())' -Method $($SelectedRequest.Method) $Body $Headers $PersistSessionCookie" 
+      Write-Host "Selected command is now in your clipboard" -ForegroundColor DarkGray
+      Write-Host $Command -ForegroundColor DarkGray
+      Set-Clipboard -Value $Command
     }
     "Details" {
       $SelectedRequest
@@ -602,10 +749,10 @@ Update-ApiCollectionBaseUri -BaseUri "http://localhost:5020" -NewBaseUri "https:
 function Update-ApiCollectionBaseUri {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position=0, ValueFromPipeline=$true)]
     [string]$BaseUri,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position=1)]
     [string]$NewBaseUri
   )
 
@@ -634,7 +781,7 @@ function Update-ApiCollectionBaseUri {
     }
 
     Write-Verbose "BaseUri updated from '$BaseUri' to '$NewBaseUri'"
-    Save-ApiConfig
+    Save-ApiConfig -ApiConfig $ApiConfig
   }
 }
 Register-ArgumentCompleter -CommandName Update-ApiCollectionBaseUri -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
@@ -653,17 +800,17 @@ The BaseUri/Identifier of the collection
 The updated headers
 
 .EXAMPLE
-Update-ApiCollectionHeaders -BaseUri "https://localhost:5001" -Headers @{"X-Tenant"="traco"}
+Update-ApiCollectionHeader -BaseUri "https://localhost:5001" -Headers @{"X-Tenant"="traco"}
 
 .NOTES
 #>
-function Update-ApiCollectionHeaders {
+function Update-ApiCollectionHeader {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position=0, ValueFromPipeline=$true)]
     [string]$BaseUri,
 
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position=1)]
     [hashtable]$Headers
   )
 
@@ -677,10 +824,10 @@ function Update-ApiCollectionHeaders {
     }
 
     Write-Verbose "Headers updated for collection '$BaseUri'"
-    Save-ApiConfig
+    Save-ApiConfig -ApiConfig $ApiConfig
   }
 }
-Register-ArgumentCompleter -CommandName Update-ApiCollectionHeaders -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
+Register-ArgumentCompleter -CommandName Update-ApiCollectionHeader -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
 
 <#
 .SYNOPSIS
@@ -731,7 +878,7 @@ function Invoke-ApiRequest {
     [Parameter(ParameterSetName = "Single")]
     [switch]$PersistSessionCookie = $false,
 
-    [Parameter(Mandatory = $true, ParameterSetName = "Single")]
+    [Parameter(Mandatory = $true, Position=0, ParameterSetName = "Single")]
     [string]$Uri, # full uri
 
     [Parameter(ParameterSetName = "Single")]
@@ -764,7 +911,6 @@ function Invoke-ApiRequest {
 
   $ApiConfig.AddRequest($Request)
 
-  # TODO extract into method???
   # 1. Default Headers from Api Config
   $ResolvedHeaders = $ApiConfig.GetDefaultHeaders()
   # 2. Collection Headers (can overwrite)
@@ -787,11 +933,10 @@ function Invoke-ApiRequest {
     }
   }
 
-
-  Save-ApiConfig
+  Save-ApiConfig -ApiConfig $ApiConfig
 
   Write-Verbose "$Request"
-  Write-Verbose "Resolved Headers: $ResolvedHeaders"
+  Write-Verbose "Resolved Headers: $(HashtableToString -Hashtable $ResolvedHeaders)"
 
   $RestMethodArgs = [hashtable]@{
     Method               = $Request.Method
@@ -849,86 +994,112 @@ $Request | Remove-ApiRequest
 function Remove-ApiRequest {
   [CmdletBinding()]
   param (
-    [Parameter(ParameterSetName = "Single")]
+    [Parameter(ParameterSetName = "Single", Position=1)]
     [ValidateSet("Get", "Put", "Patch", "Post", "Delete")]
     [string]$Method = "Get",
 
-    [Parameter(Mandatory = $true, ParameterSetName = "Single")]
+    [Parameter(Mandatory = $true, Position=0, ParameterSetName = "Single")]
     [string]$Uri, # full uri
 
-    [Parameter(Mandatory = $true, ParameterSetName = "Request", ValueFromPipeline = $true)]
-    [ApiRequest]$RequestData
+    [Parameter(Mandatory = $true, ParameterSetName = "Object", ValueFromPipeline = $true)]
+    [ApiRequest]$Request
   )
 
-  $ApiConfig = Get-ApiConfig  
+  begin {
+    $ApiConfig = Get-ApiConfig
+  }
+
+  process {
+    $ResolvedRequest = $null
+    if ($Request) {
+      $ResolvedRequest = $Request
+    }
+    else {
+      $ResolvedRequest = [ApiRequest]::new(
+        @{},
+        $Method,
+        $Uri,
+        $null,
+        $false
+      )
+    }
   
-  $Request = $null
-
-  if ($RequestData) {
-    $Request = $RequestData
-  }
-  else {
-    $Request = [ApiRequest]::new(
-      @{},
-      $Method,
-      $Uri,
-      $null,
-      $false
-    )
-  }
-
-  $Collection = $ApiConfig.Collections[$Request.BaseUri]
-  if ($null -eq $Collection) {
-    Write-Verbose "Did not find collection for BaseUri $BaseUri"
-    return
+    $Collection = $ApiConfig.Collections[$ResolvedRequest.BaseUri]
+    if ($null -eq $Collection) {
+      Write-Verbose "Did not find collection for BaseUri $($ResolvedRequest.BaseUri)"
+      return
+    }
+  
+    $RequestKey = $ResolvedRequest.GetCollectionKey()
+    $RequestToDelete = $Collection.Requests[$RequestKey]
+    if ($null -eq $RequestToDelete) {
+      Write-Verbose "Did not find request $($ResolvedRequest.ToString())"
+      return
+    }
+  
+    $Collection.Requests.Remove($RequestKey)
+    Write-Verbose "Deleted request $($ResolvedRequest.ToString())"
   }
 
-  $RequestKey = $Request.GetCollectionKey()
-  $RequestToDelete = $Collection.Requests[$RequestKey]
-  if ($null -eq $RequestToDelete) {
-    Write-Verbose "Did not find request for $RequestKey"
-    return
+  end {
+    Save-ApiConfig -ApiConfig $ApiConfig
   }
-
-  $Collection.Requests.Remove($RequestKey)
-  Save-ApiConfig
-
-  Write-Verbose "Deleted request $RequestKey"
 }
 
 <#
 .SYNOPSIS
-Delete an entiry collection of requests
+Delete an entire collection of requests
 
 .DESCRIPTION
-Delete an entiry collection of requests
+Delete an entire collection of requests
 
 .PARAMETER BaseUri
 The BaseUri which identifies the collection
 
+.PARAMETER Collection
+An existing collection object or trough pipe
+
 .EXAMPLE
 Remove-ApiCollection -BaseUri http://localhost:5020
+Get-ApiCollection -BaseUri http://localhost:5001 | Remove-ApiCollection
 
 #>
 function Remove-ApiCollection {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true)]
-    [string]$BaseUri
-  )
+    [Parameter(Mandatory = $true, Position=0, ParameterSetName = "Uri")]
+    [string]$BaseUri,
 
-  $ApiConfig = Get-ApiConfig  
+    [Parameter(Mandatory = $true, ParameterSetName = "Object", ValueFromPipeline = $true)]
+    [ApiCollection]$Collection
+  )
   
-  $Collection = $ApiConfig.Collections[$BaseUri]
-  if ($null -eq $Collection) {
-    Write-Verbose "Did not find collection for BaseUri $BaseUri"
-    return
+  begin {
+    $ApiConfig = Get-ApiConfig
   }
 
-  $ApiConfig.Collections.Remove($BaseUri)
-  Save-ApiConfig
+  process {
+    $ResolvedBaseUri = ""
+    if ($BaseUri) {
+      $ResolvedBaseUri = $BaseUri
+    }
+    else {
+      $ResolvedBaseUri = $Collection.BaseUri
+    }
+  
+    $Collection = $ApiConfig.Collections[$ResolvedBaseUri]
+    if ($null -eq $Collection) {
+      Write-Verbose "Did not find collection with BaseUri $ResolvedBaseUri"
+      return
+    }
+  
+    $ApiConfig.Collections.Remove($ResolvedBaseUri)
+    Write-Verbose "Deleted collection with BaseUri $ResolvedBaseUri"
+  }
 
-  Write-Verbose "Deleted collection $BaseUri"
+  end {
+    Save-ApiConfig -ApiConfig $ApiConfig
+  }
 }
 Register-ArgumentCompleter -CommandName Remove-ApiCollection -ParameterName BaseUri -ScriptBlock { CollectionUriArgCompleter @args }
 
@@ -940,10 +1111,10 @@ Returns all session cookies if there is a session
 Returns all session cookies if there is a session
 
 .EXAMPLE
-Get-ApiSessionCookies
+Get-ApiSessionCookie
 
 #>
-function Get-ApiSessionCookies {
+function Get-ApiSessionCookie {
   [CmdletBinding()]
   param ()
 
@@ -955,5 +1126,12 @@ function Get-ApiSessionCookies {
 
   $Session.Cookies.GetAllCookies()
 }
+
+#endregion
+
+#region alias
+
+New-Alias iar -Value Invoke-ApiRequest -ea silentlycontinue
+New-Alias sar -Value Show-ApiRequest -ea silentlycontinue
 
 #endregion

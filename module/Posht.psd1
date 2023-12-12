@@ -69,7 +69,7 @@ PowerShellVersion = '7.2'
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @("Get-ApiCollection", "Get-ApiRequest", "Show-ApiRequest", "Update-ApiCollectionBaseUri", "Update-ApiCollectionHeaders", "Invoke-ApiRequest", "Remove-ApiRequest", "Remove-ApiCollection", "Get-ApiSessionCookies")
+FunctionsToExport = @("New-ApiConfig", "Get-ApiCollection", "Get-ApiRequest", "Show-ApiRequest", "Update-ApiCollectionBaseUri", "Update-ApiCollectionHeader", "Invoke-ApiRequest", "Remove-ApiRequest", "Remove-ApiCollection", "Get-ApiSessionCookie", "Clear-ApiSession")
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
@@ -78,7 +78,7 @@ CmdletsToExport = @()
 VariablesToExport = ''
 
 # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
-AliasesToExport = @()
+AliasesToExport = @('iar', 'sar')
 
 # DSC resources to export from this module
 # DscResourcesToExport = @()
@@ -98,16 +98,16 @@ PrivateData = @{
         Tags = @("http", "api", "rest", "test")
 
         # A URL to the license for this module.
-        # LicenseUri = ''
+        LicenseUri = 'https://github.com/yendico-oss/posht/blob/main/LICENSE.txt'
 
         # A URL to the main website for this project.
-        ProjectUri = 'https://gitlab.com/yendico1/products/powershell/posht'
+        ProjectUri = 'https://github.com/yendico-oss/posht'
 
         # A URL to an icon representing this module.
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = 'https://gitlab.com/yendico1/products/powershell/posht/-/blob/main/RELEASE_NOTES.md?ref_type=heads'
+        ReleaseNotes = 'https://github.com/yendico-oss/posht/blob/main/RELEASE_NOTES.md'
 
         # Prerelease string of this module
         # Prerelease = ''
