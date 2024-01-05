@@ -3,6 +3,7 @@
 $Script:ApiSession = $null
 $Script:ApiConfigFileName = "posht.json"
 $Script:ApiConfigFolder = ".posht"
+$Script:ApiConfigFileVersion = 1
 $Script:ApiTitleForegroundColor = [System.ConsoleColor]::Magenta
 $Script:ApiTitleBackgroundColor = [System.ConsoleColor]::Black
 
@@ -20,23 +21,20 @@ class ApiRequest {
 
   ApiRequest($ApiRequestRaw) {
     # from json
-    $this.Method = $ApiRequestRaw.Method
-    $this.BaseUri = $ApiRequestRaw.BaseUri
+    $this.Method = $ApiRequestRaw.Method.ToLower()
+    $this.BaseUri = $ApiRequestRaw.BaseUri.ToLower()
     $this.Path = $ApiRequestRaw.Path
     $this.Body = $ApiRequestRaw.Body
     $this.PersistSession = $ApiRequestRaw.PersistSession
-    $this.Headers = [ordered]@{}
-    foreach ($Prop in $ApiRequestRaw.Headers.PSObject.Properties) {
-      $this.Headers[$Prop.Name] = $Prop.Value
-    }
+    $this.Headers = $ApiRequestRaw.Headers
   }
 
   ApiRequest([hashtable]$Headers, [string]$Method, [string]$Uri, [System.Object]$Body, [bool]$PersistSession) {
     # standard
     $UriObject = [Uri]::new($Uri)
-    $this.Method = $Method
-    $this.BaseUri = "$($UriObject.Scheme)://$($UriObject.Host):$($UriObject.Port)"
-    $this.Path = $UriObject.PathAndQuery
+    $this.Method = $Method.ToLower()
+    $this.BaseUri = "$($UriObject.Scheme)://$($UriObject.Host):$($UriObject.Port)".ToLower()
+    $this.Path = "$($UriObject.LocalPath.ToLower())$($UriObject.Query)"
     $this.Body = $Body
     $this.Headers = $Headers
     $this.PersistSession = $PersistSession
@@ -66,20 +64,17 @@ class ApiCollection {
 
   ApiCollection($ApiCollectionRaw) {
     # from json
-    $this.BaseUri = $ApiCollectionRaw.BaseUri
-    $this.Headers = [ordered]@{}
-    foreach ($Prop in $ApiCollectionRaw.Headers.PSObject.Properties) {
-      $this.Headers[$Prop.Name] = $Prop.Value
-    }
-    $this.Requests = [ordered]@{}
-    foreach ($Prop in $ApiCollectionRaw.Requests.PSObject.Properties) {
-      $this.Requests[$Prop.Name] = [ApiRequest]::new($Prop.Value)
+    $this.BaseUri = $ApiCollectionRaw.BaseUri.ToLower()
+    $this.Headers = $ApiCollectionRaw.Headers
+    $this.Requests = [hashtable]@{}
+    foreach ($Request in $ApiCollectionRaw.Requests.GetEnumerator()) {
+      $this.Requests[$Request.Key] = [ApiRequest]::new($Request.Value)
     }
   }
 
   ApiCollection([string]$BaseUri, [hashtable]$Headers) {
     # standard
-    $this.BaseUri = $BaseUri
+    $this.BaseUri = $BaseUri.ToLower()
     $this.Headers = $Headers
     $this.Requests = [hashtable]@{}
   }
@@ -95,6 +90,7 @@ class ApiCollection {
 
 class ApiConfig {
   [string] $Id
+  [int] $Version
   [hashtable] $DefaultHeaders
   [hashtable] $Collections
   [datetime] $LastUpdate
@@ -102,6 +98,7 @@ class ApiConfig {
   ApiConfig() {
     # empty/new config
     $this.Id = (New-Guid).Guid
+    $this.Version = $Script:ApiConfigFileVersion
     $this.DefaultHeaders = [hashtable]@{
       "accept"        = "application/json"
       "content-type"  = "application/json"
@@ -114,21 +111,21 @@ class ApiConfig {
   ApiConfig($ApiConfigRaw) {
     # from json
     $this.Id = $ApiConfigRaw.Id
-    if($null -eq $this.Id -or $this.Id -eq ""){
+    if (-Not $this.Id) {
       $this.Id = (New-Guid).Guid
     }
 
-    $this.DefaultHeaders = [hashtable]@{}
-    foreach ($Prop in $ApiConfigRaw.DefaultHeaders.PSObject.Properties) {
-      $this.DefaultHeaders[$Prop.Name] = $Prop.Value
+    $this.Version = $ApiConfigRaw.Version
+    if (-Not $this.Version) {
+      $this.Version = 0 # Must be an old config file -> apply migrations
     }
 
-    $this.Collections = [hashtable]@{}
-    foreach ($Prop in $ApiConfigRaw.Collections.PSObject.Properties) {
-      $this.Collections[$Prop.Name] = [ApiCollection]::new($Prop.Value)
-    }
-
+    $this.DefaultHeaders = $ApiConfigRaw.DefaultHeaders
     $this.LastUpdate = $ApiConfigRaw.LastUpdate
+    $this.Collections = [hashtable]@{}
+    foreach ($Collection in $ApiConfigRaw.Collections.GetEnumerator()) {
+      $this.Collections[$Collection.Key] = [ApiCollection]::new($Collection.Value)
+    }
   }
 
   [void] AddRequest([ApiRequest]$Request) {
@@ -148,7 +145,7 @@ class ApiConfig {
 
   [string] CalculateBaseUri($FullUri) {
     $UriObject = [Uri]::new($FullUri)
-    $BaseUri = "$($UriObject.Scheme)://$($UriObject.Host):$($UriObject.Port)"
+    $BaseUri = "$($UriObject.Scheme)://$($UriObject.Host):$($UriObject.Port)".ToLower()
     return $BaseUri
   }
 
@@ -232,8 +229,11 @@ function Read-ApiConfig {
     Write-Verbose "Read ApiConfig from $ConfigFilePath"
     $ConfigFile = Get-Content -Path $ConfigFilePath -Raw
 
-    $RawApiConfig = $ConfigFile | ConvertFrom-Json -Depth 10
-    return [ApiConfig]::new($RawApiConfig)
+    $RawApiConfig = $ConfigFile | ConvertFrom-Json -Depth 10 -AsHashtable
+    $ApiConfig = [ApiConfig]::new($RawApiConfig)
+    Start-Migrations -ApiConfig $ApiConfig
+
+    return $ApiConfig
   }
   else {
     # no config file found
@@ -379,7 +379,8 @@ function Show-CliMenu {
       [console]::CursorVisible = $false #prevents cursor flickering
       Build-CliMenu $Items $Position $Multiselect $Selection
       While ($VKeyCode -ne 13 -and $VKeyCode -ne 27) {
-        $PressedKey = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        $Options = [System.Management.Automation.Host.ReadKeyOptions]"IncludeKeyDown", "NoEcho";
+        $PressedKey = $Host.UI.RawUI.ReadKey($Options)
         $VKeyCode = $PressedKey.VirtualKeyCode
         # 38=up-arrow,40=down-arrow,36=home,35=end,27=esc,13=enter
         if ($VKeyCode -eq 38 -or $PressedKey.Character -eq 'k') { $Position-- } #go up
@@ -531,9 +532,10 @@ function New-ApiConfig {
   )
 
   $FullPath = ""
-  if($Local){
+  if ($Local) {
     $FullPath = Get-ApiConfigFilePath -Source Local
-  } else {
+  }
+  else {
     $FullPath = Get-ApiConfigFilePath -Source UserProfile 
   }
 
@@ -571,7 +573,7 @@ Get-ApiCollection -BaseUri "https*"
 function Get-ApiCollection {
   [CmdletBinding()]
   param (
-    [Parameter(Position=0)]
+    [Parameter(Position = 0)]
     [string]$BaseUri
   )
 
@@ -615,10 +617,10 @@ Get-ApiRequest -Method "Post"
 function Get-ApiRequest {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $false, Position=0)]
+    [Parameter(Mandatory = $false, Position = 0)]
     [string]$BaseUri = $null,
 
-    [Parameter(Mandatory = $false, Position=1)]
+    [Parameter(Mandatory = $false, Position = 1)]
     [string]$Method = $null
   )
 
@@ -749,10 +751,10 @@ Update-ApiCollectionBaseUri -BaseUri "http://localhost:5020" -NewBaseUri "https:
 function Update-ApiCollectionBaseUri {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true, Position=0, ValueFromPipeline=$true)]
+    [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
     [string]$BaseUri,
 
-    [Parameter(Mandatory = $true, Position=1)]
+    [Parameter(Mandatory = $true, Position = 1)]
     [string]$NewBaseUri
   )
 
@@ -807,10 +809,10 @@ Update-ApiCollectionHeader -BaseUri "https://localhost:5001" -Headers @{"X-Tenan
 function Update-ApiCollectionHeader {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true, Position=0, ValueFromPipeline=$true)]
+    [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)]
     [string]$BaseUri,
 
-    [Parameter(Mandatory = $true, Position=1)]
+    [Parameter(Mandatory = $true, Position = 1)]
     [hashtable]$Headers
   )
 
@@ -878,7 +880,7 @@ function Invoke-ApiRequest {
     [Parameter(ParameterSetName = "Single")]
     [switch]$PersistSessionCookie = $false,
 
-    [Parameter(Mandatory = $true, Position=0, ParameterSetName = "Single")]
+    [Parameter(Mandatory = $true, Position = 0, ParameterSetName = "Single")]
     [string]$Uri, # full uri
 
     [Parameter(ParameterSetName = "Single")]
@@ -994,11 +996,11 @@ $Request | Remove-ApiRequest
 function Remove-ApiRequest {
   [CmdletBinding()]
   param (
-    [Parameter(ParameterSetName = "Single", Position=1)]
+    [Parameter(ParameterSetName = "Single", Position = 1)]
     [ValidateSet("Get", "Put", "Patch", "Post", "Delete")]
     [string]$Method = "Get",
 
-    [Parameter(Mandatory = $true, Position=0, ParameterSetName = "Single")]
+    [Parameter(Mandatory = $true, Position = 0, ParameterSetName = "Single")]
     [string]$Uri, # full uri
 
     [Parameter(Mandatory = $true, ParameterSetName = "Object", ValueFromPipeline = $true)]
@@ -1067,7 +1069,7 @@ Get-ApiCollection -BaseUri http://localhost:5001 | Remove-ApiCollection
 function Remove-ApiCollection {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true, Position=0, ParameterSetName = "Uri")]
+    [Parameter(Mandatory = $true, Position = 0, ParameterSetName = "Uri")]
     [string]$BaseUri,
 
     [Parameter(Mandatory = $true, ParameterSetName = "Object", ValueFromPipeline = $true)]
@@ -1125,6 +1127,41 @@ function Get-ApiSessionCookie {
   }
 
   $Session.Cookies.GetAllCookies()
+}
+
+#endregion
+
+#region schema migrations
+
+function Start-Migrations {
+  param (
+    [Parameter(Mandatory = $true)]
+    [ApiConfig]$ApiConfig
+  )
+
+  if ($ApiConfig.Version -eq $Script:ApiConfigFileVersion) { return }
+
+  # V1: Lowercase hashmap keys  
+  if ($ApiConfig.Version -lt 1) {
+    Write-Verbose "Run Migration 1: Lowercase hashmap keys"
+    $Collections = [hashtable]@{}
+    foreach ($Collection in $ApiConfig.Collections.Values) {
+      $Requests = [hashtable]@{}
+      foreach ($Request in $Collection.Requests.Values) {
+        # Fix Path
+        $PathAndQuery = $Request.Path.Split('?')
+        $Request.Path = "$($PathAndQuery[0].ToLower())"
+        if($null -ne $PathAndQuery[1]) { $Request.Path += "?$($PathAndQuery[1])" }
+
+        $Requests[$Request.GetCollectionKey()] = $Request
+      }
+      $Collection.Requests = $Requests
+      $Collections[$Collection.GetKey()] = $Collection
+    }
+    $ApiConfig.Collections = $Collections
+    $ApiConfig.Version = 1
+    Save-ApiConfig -ApiConfig $ApiConfig
+  }
 }
 
 #endregion
