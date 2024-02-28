@@ -1,0 +1,51 @@
+name: Test PowerShell Module and Tag (only on main)
+
+on: push
+
+env:
+  MODULE_NAME: 'Posht'
+
+jobs:
+  test:
+    name: Module validation tests
+    runs-on: ubuntu-latest
+    outputs:
+      MODULE_VERSION: ${{ steps.validation.outputs.MODULE_VERSION }}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - id: validation
+        name: Perform module validation tests
+        shell: pwsh
+        run: |
+          Write-Host "Check if psd1 and psm1 files are there"
+          if (-Not (Test-Path -Path "$($env:GITHUB_WORKSPACE)/$($env:MODULE_NAME)/$($env:MODULE_NAME).psd1")) { Throw "psd1 (definition file) does not exist" }
+          if (-Not (Test-Path -Path "$($env:GITHUB_WORKSPACE)/$($env:MODULE_NAME)/$($env:MODULE_NAME).psm1")) { Throw "psm1 (module file) does not exist" }
+          Test-ModuleManifest -Path "$($env:GITHUB_WORKSPACE)/$($env:MODULE_NAME)/$($env:MODULE_NAME).psd1"
+          Write-Host "Check if definition file (psd1) contains important information"
+          $PsdFile = Import-PowerShellDataFile -Path "$($env:GITHUB_WORKSPACE)/$($env:MODULE_NAME)/$($env:MODULE_NAME).psd1"
+          if (-not ($PsdFile.ModuleVersion -match '^\d+.\d+.\d+$')) { Throw "'ModuleVersion' doesnt match the version format (SEMVER). $($PsdFile.ModuleVersion)" }
+          Write-Host "Local Version=$($PsdFile.ModuleVersion)"
+          $RemoteModule = Find-Module -Repository PSGallery -Name $env:MODULE_NAME -RequiredVersion $PsdFile.ModuleVersion -ErrorAction SilentlyContinue
+          if ($RemoteModule) { Throw "There is already a package with version $($RemoteModule.Version) in the remote repository" }
+          if (-not $PsdFile.ModuleVersion -or $PsdFile.ModuleVersion -eq "0.0.0") { Throw "Please add module version 'ModuleVersion' to definition file" }
+          if (-not $PsdFile.GUID) { Throw "Module GUID 'GUID' does not exist." }
+          if (-not $PsdFile.Author) { Throw "Please add module author 'Author' to definition file" }
+          if (-not $PsdFile.CompanyName) { Throw "Please add module company name 'CompanyName' to definition file" }
+          if (-not $PsdFile.Copyright) { Throw "Please add module copyright 'Copyright' to definition file" }
+          if (-not $PsdFile.Description) { Throw "Please add module description 'Description' to definition file" }
+          echo "MODULE_VERSION=$($PsdFile.ModuleVersion)" >> $env:GITHUB_OUTPUT
+  tag:
+    name: Tag on main
+    if: github.ref == 'ref/head/main'
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      MODULE_VERSION: ${{needs.test.outputs.MODULE_VERSION}}
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - name: Create a new tag 
+        uses: rickstaa/action-create-tag@v1
+        with:
+          tag: $MODULE_VERSION

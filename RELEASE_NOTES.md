@@ -1,5 +1,9 @@
 # Release Notes of Posht
 
+## 1.0.3
+
+* CICD: add test and deployment pipeline (no change to module code)
+
 ## 1.0.2
 
 * Feat: Use ConvertTo-Expression (thanks to @iRon7 <https://github.com/iRon7/ConvertTo-Expression>) to properly generate Invoke-ApiRequest expression (Used in Show-ApiRequest when recreating Invoke-ApiRequest calls from saved calls)
