@@ -1,6 +1,6 @@
 # Release Notes of Posht
 
-## 1.0.3
+## 1.0.2
 
 * CICD: add test and deployment pipeline (no change to module code)
 

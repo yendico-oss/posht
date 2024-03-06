@@ -18,4 +18,4 @@ jobs:
           NUGET_KEY: ${{ secrets.PS_GALLERY_NUGET_KEY }}
         shell: pwsh
         run: |
-          Publish-Module -Path "$($env:GITHUB_WORKSPACE)/$($env:MODULE_NAME)" -NuGetApiKey $env:PS_GALLERY_NUGET_KEY -Verbose
+          Publish-Module -Path "$($env:GITHUB_WORKSPACE)/$($env:MODULE_NAME)" -NuGetApiKey $env:NUGET_KEY -Verbose
