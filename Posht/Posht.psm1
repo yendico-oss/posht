@@ -176,6 +176,9 @@ class CliMenuItem {
 
 #region private functions
 
+# Source external functions
+. $PSScriptRoot\Functions\ConvertTo-Expression.ps1
+
 function Get-ApiSession {
   return $Script:ApiSession
 }
@@ -489,21 +492,6 @@ function RequestUriArgCompleter {
   $Requests | Where-Object { $_.GetUri() -like "$wordToComplete*" } | ForEach-Object { $_.GetUri() }
 }
 
-function HashtableToString {
-  param ( 
-    [hashtable]$Hashtable
-  )
-
-  if ($null -eq $Hashtable) {
-    return "";
-  }
-  
-  $Result = ""
-
-  $Hashtable.Keys | ForEach-Object { $Result += "$_=$($Hashtable[$_])," }
-  return $Result
-}
-
 #endregion
 
 #region public functions
@@ -685,7 +673,7 @@ function Show-ApiRequest {
   }
 
   Write-ApiHeader "Requests for uri '$SelectedCollection':"
-  Write-Host "Headers: $(HashtableToString -Hashtable $SelectedCollection.Headers)" -ForegroundColor DarkGray
+  Write-Host "Headers: $($SelectedCollection.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor DarkGray
   Write-Host ""
   $SortedRequests = $SelectedCollection.Requests.Values | Sort-Object -Property Method, Path
   $RequestItems = ConvertTo-CliMenuItems -Items $SortedRequests -LabelFunction { param($Req) return "$(ToFixedLength -Text $Req.Method -Length 8) $($Req.Path) => (Headers: $($Req.Headers.Count), Body: $($null -ne $Req.Body))" }
@@ -699,7 +687,7 @@ function Show-ApiRequest {
   Write-ApiHeader "Actions for request '$SelectedRequest':"
   Write-Host "Method: $($SelectedRequest.Method)" -ForegroundColor DarkGray
   Write-Host "Path: $($SelectedRequest.Path)" -ForegroundColor DarkGray
-  Write-Host "Headers: $(HashtableToString -Hashtable $SelectedRequest.Headers)" -ForegroundColor DarkGray
+  Write-Host "Headers: $($SelectedRequest.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor DarkGray
   Write-Host "Body: $($SelectedRequest.Body | ConvertTo-Json -Depth 10 -Compress)" -ForegroundColor DarkGray
   Write-Host ""
   $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Clipboard", "Details", "Remove", "Cancel")
@@ -711,9 +699,8 @@ function Show-ApiRequest {
       $SelectedRequest | Invoke-ApiRequest
     }
     "Clipboard" {
-      Write-Host "Under development"
-      $Body = if ($SelectedRequest.Body) { "-Body TODO" } else { "" }
-      $Headers = if ($SelectedRequest.Headers) { "-Headers TODO" } else { "" }
+      $Body = if ($SelectedRequest.Body) { "-Body $(ConvertTo-Expression -Object $SelectedRequest.Body -Expand -1)" } else { "" }
+      $Headers = if ($SelectedRequest.Headers) { "-Headers $(ConvertTo-Expression -Object $SelectedRequest.Headers -Expand -1)" } else { "" }
       $PersistSessionCookie = if ($SelectedRequest.PersistSessionCookie) { "-PersistSessionCookie" }else { "" }
       $Command = "Invoke-ApiRequest -Uri '$($SelectedRequest.GetUri())' -Method $($SelectedRequest.Method) $Body $Headers $PersistSessionCookie" 
       Write-Host "Selected command is now in your clipboard" -ForegroundColor DarkGray
@@ -938,7 +925,7 @@ function Invoke-ApiRequest {
   Save-ApiConfig -ApiConfig $ApiConfig
 
   Write-Verbose "$Request"
-  Write-Verbose "Resolved Headers: $(HashtableToString -Hashtable $ResolvedHeaders)"
+  Write-Verbose "Resolved Headers: $($ResolvedHeaders | ConvertTo-Json -Depth 2 -Compress)"
 
   $RestMethodArgs = [hashtable]@{
     Method               = $Request.Method
@@ -1141,9 +1128,9 @@ function Start-Migrations {
 
   if ($ApiConfig.Version -eq $Script:ApiConfigFileVersion) { return }
 
-  # V1: Lowercase hashmap keys  
+  # V1: Lowercase hashtable keys  
   if ($ApiConfig.Version -lt 1) {
-    Write-Verbose "Run Migration 1: Lowercase hashmap keys"
+    Write-Verbose "Run Migration 1: Lowercase hashtable keys"
     $Collections = [hashtable]@{}
     foreach ($Collection in $ApiConfig.Collections.Values) {
       $Requests = [hashtable]@{}
