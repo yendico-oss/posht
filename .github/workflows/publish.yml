@@ -1,0 +1,21 @@
+name: Publish PowerShell Module
+
+on:
+  release:
+    types: [created]
+
+env:
+  MODULE_NAME: 'Posht'
+
+jobs:
+  publish-to-gallery:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - name: Publish to PSGallery
+        env:
+          NUGET_KEY: ${{ secrets.PS_GALLERY_NUGET_KEY }}
+        shell: pwsh
+        run: |
+          Publish-Module -Path "$($env:GITHUB_WORKSPACE)/$($env:MODULE_NAME)" -NuGetApiKey $env:NUGET_KEY -Verbose
