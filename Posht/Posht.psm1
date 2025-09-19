@@ -3,7 +3,7 @@
 $Script:ApiSession = $null
 $Script:ApiConfigFileName = "posht.json"
 $Script:ApiConfigFolder = ".posht"
-$Script:ApiConfigFileVersion = 1
+$Script:ApiConfigFileVersion = 2
 $Script:ApiTitleForegroundColor = [System.ConsoleColor]::Magenta
 $Script:ApiTitleBackgroundColor = [System.ConsoleColor]::Black
 
@@ -626,7 +626,7 @@ function Show-RequestsMenu {
 
   Write-ApiHeader "Requests for Base Uri '$Collection'"
   Write-Host "Headers: $($Collection.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor DarkGray
-  Write-Host "Requests count: $($Collection.Requests.Count)" -ForegroundColor DarkGray
+  Write-Host "Requests: $($Collection.Requests.Count)" -ForegroundColor DarkGray
   Write-Host ""
 
   if ($OrderByUsage) { $SortedRequests = $Collection.Requests.Values | Sort-Object -Property @{Expression = "UsageCount"; Descending = $true }, @{Expression = "Path"; Descending = $false } }
@@ -1328,6 +1328,16 @@ function Start-Migrations {
     }
     $ApiConfig.Collections = $Collections
     $ApiConfig.Version = 1
+    Save-ApiConfig -ApiConfig $ApiConfig
+  }
+
+  if($ApiConfig.Version -lt 2){
+    # Make a backup but no structural changes
+    $ConfigFilePath = Resolve-ApiConfigFilePath
+    $BackupPath = $ConfigFilePath.Replace($Script:ApiConfigFileName, "posht_$(Get-Date -Format "MM-dd-yyyyTHH-mm").json")
+    Save-ApiConfig -ApiConfig $ApiConfig -FullPath $BackupPath
+
+    $ApiConfig.Version = 2
     Save-ApiConfig -ApiConfig $ApiConfig
   }
 }
