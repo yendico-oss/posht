@@ -1,5 +1,16 @@
 # Release Notes of Posht
 
+## 2.0.0
+
+* Feat: new `-SkipCertificateCheck` switch parameter which is passed trough to the `Invoke-WebRequest` function
+* Feat: new `-NoHistory` switch parameter which tells Posht to **not** remember the api call
+* Feat: new `-Raw` switch parameter which returns the response content as a string (Default: without thew `-Raw` parameter is a powershell object)
+* Feat: new `-BearerToken` parameter which sets the Authorization header
+* Feat: big improvements to CLI menu (paging, more stats, order by most used requests `Show-ApiRequest -OrderByUsage`)
+* Fix: CLI menu overflow issue
+* Fix: when `-PersistSessionCookie` is set the web session which is used for the next requests is stripped from possible Authorization headers (to prevent having Authorization header and Session cookies at the same time)
+* Fix: save request uri in the original casing to not loose information. Especially if query args are used, it's important that we don't loose the casing information when saving the requests
+
 ## 1.0.3
 
 * CICD: add test and deployment pipeline (no change to module code)

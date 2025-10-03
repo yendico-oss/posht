@@ -3,7 +3,7 @@
 $Script:ApiSession = $null
 $Script:ApiConfigFileName = "posht.json"
 $Script:ApiConfigFolder = ".posht"
-$Script:ApiConfigFileVersion = 1
+$Script:ApiConfigFileVersion = 2
 $Script:ApiTitleForegroundColor = [System.ConsoleColor]::Magenta
 $Script:ApiTitleBackgroundColor = [System.ConsoleColor]::Black
 
@@ -17,27 +17,40 @@ class ApiRequest {
   [string]$Path
   [System.Object]$Body
   [hashtable]$Headers
-  [bool]$PersistSession
+  [bool]$PersistSession = $false
+  [bool]$SkipCertificateCheck = $false
+  [bool]$Raw = $false
+  [string]$BearerToken
+  [int]$UsageCount = 1
 
   ApiRequest($ApiRequestRaw) {
     # from json
-    $this.Method = $ApiRequestRaw.Method.ToLower()
-    $this.BaseUri = $ApiRequestRaw.BaseUri.ToLower()
+    $this.Method = $ApiRequestRaw.Method
+    $this.BaseUri = $ApiRequestRaw.BaseUri
     $this.Path = $ApiRequestRaw.Path
     $this.Body = $ApiRequestRaw.Body
-    $this.PersistSession = $ApiRequestRaw.PersistSession
     $this.Headers = $ApiRequestRaw.Headers
+    $this.PersistSession = $ApiRequestRaw.PersistSession
+    $this.SkipCertificateCheck = $ApiRequestRaw.SkipCertificateCheck
+    $this.Raw = $ApiRequestRaw.Raw
+    $this.BearerToken = $ApiRequestRaw.BearerToken
+
+    if ($ApiRequestRaw.UsageCount) { $this.UsageCount = $ApiRequestRaw.UsageCount }
+    else { $this.UsageCount = 1 }
   }
 
-  ApiRequest([hashtable]$Headers, [string]$Method, [string]$Uri, [System.Object]$Body, [bool]$PersistSession) {
+  ApiRequest([hashtable]$Headers, [string]$Method, [string]$Uri, [System.Object]$Body, [bool]$PersistSession, [bool]$SkipCertificateCheck, [bool]$Raw, [string]$BearerToken) {
     # standard
     $UriObject = [Uri]::new($Uri)
-    $this.Method = $Method.ToLower()
-    $this.BaseUri = "$($UriObject.Scheme)://$($UriObject.Host):$($UriObject.Port)".ToLower()
-    $this.Path = "$($UriObject.LocalPath.ToLower())$($UriObject.Query)"
+    $this.Method = $Method
+    $this.BaseUri = "$($UriObject.Scheme)://$($UriObject.Host):$($UriObject.Port)"
+    $this.Path = "$($UriObject.LocalPath)$($UriObject.Query)"
     $this.Body = $Body
     $this.Headers = $Headers
     $this.PersistSession = $PersistSession
+    $this.SkipCertificateCheck = $SkipCertificateCheck
+    $this.Raw = $Raw
+    $this.BearerToken = $BearerToken
   }
 
   [string] GetUri() {
@@ -49,11 +62,11 @@ class ApiRequest {
   }
 
   [string] GetCollectionKey() {
-    return "$($this.Method)_$($this.Path)"
+    return "$($this.Method.ToLower())_$($this.Path.ToLower())"
   }
 
   [string] GetKey() {
-    return "$($this.Method)_$($this.BaseUri)_$($this.Path)"
+    return "$($this.Method.ToLower())_$($this.BaseUri.ToLower())_$($this.Path.ToLower())"
   }
 }
 
@@ -61,20 +74,25 @@ class ApiCollection {
   [string]$BaseUri
   [hashtable]$Headers
   [hashtable]$Requests
+  [int]$UsageCount = 1
 
   ApiCollection($ApiCollectionRaw) {
     # from json
-    $this.BaseUri = $ApiCollectionRaw.BaseUri.ToLower()
+    $this.BaseUri = $ApiCollectionRaw.BaseUri
     $this.Headers = $ApiCollectionRaw.Headers
     $this.Requests = [hashtable]@{}
+
     foreach ($Request in $ApiCollectionRaw.Requests.GetEnumerator()) {
       $this.Requests[$Request.Key] = [ApiRequest]::new($Request.Value)
     }
+
+    if ($ApiCollectionRaw.UsageCount) { $this.UsageCount = $ApiCollectionRaw.UsageCount }
+    else { $this.UsageCount = $this.Requests.Count }
   }
 
   ApiCollection([string]$BaseUri, [hashtable]$Headers) {
     # standard
-    $this.BaseUri = $BaseUri.ToLower()
+    $this.BaseUri = $BaseUri
     $this.Headers = $Headers
     $this.Requests = [hashtable]@{}
   }
@@ -84,7 +102,7 @@ class ApiCollection {
   }
 
   [string] GetKey() {
-    return $this.BaseUri
+    return $this.BaseUri.ToLower()
   }
 }
 
@@ -139,14 +157,14 @@ class ApiConfig {
     }
     else {
       # add/update request in existing collection
-      $ExistingCollection.Requests[$Request.GetCollectionKey()] = $Request
+      $ReqColKey = $Request.GetCollectionKey()
+      $ExistingCollection.UsageCount++
+      $ExistingRequest = $ExistingCollection.Requests[$ReqColKey]
+      if ($ExistingRequest) { $Request.UsageCount = $ExistingRequest.UsageCount + 1 }
+      
+      # Add/Overwrite
+      $ExistingCollection.Requests[$ReqColKey] = $Request
     }
-  }
-
-  [string] CalculateBaseUri($FullUri) {
-    $UriObject = [Uri]::new($FullUri)
-    $BaseUri = "$($UriObject.Scheme)://$($UriObject.Host):$($UriObject.Port)".ToLower()
-    return $BaseUri
   }
 
   [hashtable] GetDefaultHeaders() {
@@ -303,43 +321,15 @@ function ConvertTo-CliMenuItems {
   return [CliMenuItem[]]$MenuItems
 }
 
-function Build-CliMenu {
-  param (
-    [Parameter(Mandatory = $true)]
-    [CliMenuItem[]]$Items,
-
-    [Parameter(Mandatory = $true)]
-    $MenuPosition,
-
-    [Parameter(Mandatory = $true)]
-    $Multiselect,
-
-    [Parameter(Mandatory = $true)]
-    $Selection
+function Write-ClearedLine {
+  param(
+    [string]$Text,
+    [int]$ClearingWidth,
+    [ConsoleColor]$ForegroundColor = $Host.UI.RawUI.ForegroundColor
   )
-
-  $ItemsLength = $Items.Count
-  for ($i = 0; $i -le $ItemsLength; $i++) {
-    if ($null -ne $Items[$i]) {
-      $Item = $Items[$i]
-      $Label = $Item.Label
-      if ($Multiselect) {
-        if ($Selection -contains $i) {
-          $Label = '[x] ' + $Label
-        }
-        else {
-          $Label = '[ ] ' + $Label
-        }
-      }
-      if ($i -eq $MenuPosition) {
-
-        Write-Host "> $Label" -ForegroundColor Green
-      }
-      else {
-        Write-Host "  $Label"
-      }
-    }
-  }
+  # pad text to width, truncate if longer
+  $Line = $Text.PadRight($ClearingWidth).Substring(0, $ClearingWidth)
+  Write-Host $Line -ForegroundColor $ForegroundColor
 }
 
 function Set-CliMenuSelection {
@@ -362,6 +352,7 @@ function Set-CliMenuSelection {
 }
 
 function Show-CliMenu {
+  [CmdletBinding()]
   param (
     [Parameter(Mandatory = $true)]
     [CliMenuItem[]]$Items,
@@ -370,7 +361,7 @@ function Show-CliMenu {
     [switch]$ReturnIndex = $false,
 
     [Parameter()]
-    [switch]$Multiselect = $false
+    [bool]$Multiselect = $false
   )
 
   $VKeyCode = 0
@@ -379,31 +370,54 @@ function Show-CliMenu {
 
   if ($Items.Count -gt 0) {
     try {
-      [console]::CursorVisible = $false #prevents cursor flickering
-      Build-CliMenu $Items $Position $Multiselect $Selection
-      While ($VKeyCode -ne 13 -and $VKeyCode -ne 27) {
+      [System.Console]::CursorVisible = $false #prevents cursor flickering
+
+      $StartPos = [System.Console]::CursorTop
+      $PageSize = ([System.Console]::WindowHeight - $StartPos) - 5
+      $WindowStart = 0
+      $WindowEnd = [Math]::Min($PageSize - 1, $Items.Count - 1) # -1 because window end is used as an inclusive index
+
+      Build-CliMenu -Items $Items[$WindowStart..$WindowEnd] -RelativePosition $Position -Multiselect $Multiselect -Selection $Selection -Offset $WindowStart -TotalCount $Items.Count
+      
+      While (
+        $VKeyCode -ne 13 -and $VKeyCode -ne 27) {
         $Options = [System.Management.Automation.Host.ReadKeyOptions]"IncludeKeyDown", "NoEcho";
         $PressedKey = $Host.UI.RawUI.ReadKey($Options)
         $VKeyCode = $PressedKey.VirtualKeyCode
         # 38=up-arrow,40=down-arrow,36=home,35=end,27=esc,13=enter
         if ($VKeyCode -eq 38 -or $PressedKey.Character -eq 'k') { $Position-- } #go up
-        if ($VKeyCode -eq 40 -or $PressedKey.Character -eq 'j') { $Position++ } #go down
-        if ($VKeyCode -eq 36) { $Position = 0 } #top
-        if ($VKeyCode -eq 35) { $Position = $Items.Count - 1 } #bottom
-        if ($PressedKey.Character -eq ' ') { $Selection = Set-CliMenuSelection $Position $Selection }
+        elseif ($VKeyCode -eq 40 -or $PressedKey.Character -eq 'j') { $Position++ } #go down
+        elseif ($VKeyCode -eq 36) { $Position = 0 } #top
+        elseif ($VKeyCode -eq 35) { $Position = $Items.Count - 1 } #bottom
+        elseif ($PressedKey.Character -eq ' ') { $Selection = Set-CliMenuSelection $Position $Selection }
+        
         if ($Position -lt 0) { $Position = 0 }
         if ($VKeyCode -eq 27) { $Position = $null }
         if ($Position -ge $Items.Count) { $Position = $Items.Count - 1 }
+
+        # Adjust window end and start values
+        if ($Position -lt $WindowStart) {
+          $WindowStart = $Position
+          $WindowEnd = [Math]::Min($WindowStart + $PageSize - 1, $Items.Count - 1)
+        }
+        elseif ($Position -gt $WindowEnd) {
+          $WindowEnd = $Position
+          $WindowStart = [Math]::Max(0, $WindowEnd - $PageSize + 1)
+        }
+
+        # NO ESCAPE (Setting the Cursor)
         if ($VKeyCode -ne 27) {
-          $startPos = [System.Console]::CursorTop - $Items.Count
-          [System.Console]::SetCursorPosition(0, $startPos)
-          Build-CliMenu $Items $Position $Multiselect $Selection
+          # $StartPos = ([System.Console]::CursorTop - ($WindowEnd - $WindowStart)) - 2
+          [System.Console]::SetCursorPosition(0, $StartPos)
+
+          $RelativePos = $Position - $WindowStart
+          Build-CliMenu -Items $Items[$WindowStart..$WindowEnd] -RelativePosition $RelativePos -Multiselect $Multiselect -Selection $Selection -Offset $WindowStart -TotalCount $Items.Count
         }
       }
     }
     finally {
-      [System.Console]::SetCursorPosition(0, $startPos + $Items.Count)
-      [console]::CursorVisible = $true
+      [System.Console]::SetCursorPosition(0, $StartPos + ($WindowEnd - $WindowStart + 2))
+      [System.Console]::CursorVisible = $true
     }
   }
   else {
@@ -425,6 +439,69 @@ function Show-CliMenu {
     else {
       return $Position
     }
+  }
+}
+
+function Build-CliMenu {
+  param (
+    [Parameter(Mandatory = $true)]
+    [CliMenuItem[]]$Items,
+
+    [Parameter(Mandatory = $true)]
+    [int]$RelativePosition,
+
+    [Parameter(Mandatory = $false)]
+    [bool]$Multiselect = $false,
+
+    [Parameter()]
+    [array]$Selection = @(),
+
+    [Parameter()]
+    [int]$Offset = 0,
+
+    [Parameter(Mandatory = $true)]
+    [int]$TotalCount
+  )
+
+  $ConsoleWidth = [System.Console]::WindowWidth
+
+  if ($Offset -gt 0) {
+    Write-ClearedLine -Text "   ... more above ..." -ForegroundColor DarkGray -ClearingWidth $ConsoleWidth
+  }
+  else {
+    Write-ClearedLine -Text "" -ClearingWidth $ConsoleWidth # empty line if no indicator, keeps alignment
+  }
+
+  for ($i = 0; $i -lt $Items.Count; $i++) {
+    $AbsoluteIndex = $i + $Offset
+    
+    if ($null -ne $Items[$i]) {
+      $Label = $Items[$i].Label
+
+      if ($Multiselect) {
+        if ($Selection -contains $AbsoluteIndex) {
+          $Label = '[x] ' + $Label
+        }
+        else { 
+          $Label = '[ ] ' + $Label
+        }
+      }
+
+      if ($i -eq $RelativePosition) {
+        Write-ClearedLine ">> $Label" -ForegroundColor Green -ClearingWidth $ConsoleWidth
+      }
+      else {
+        Write-ClearedLine "   $Label" -ClearingWidth $ConsoleWidth
+      }
+    }
+  }
+
+  # --- show "more below" indicator ---
+  if ($Offset + $Items.Count -lt $TotalCount) {
+    Write-ClearedLine "   ... more below ..." -ForegroundColor DarkGray -ClearingWidth $ConsoleWidth
+  }
+  else {
+    Write-ClearedLine "" -ClearingWidth $ConsoleWidth # empty line if no indicator, keeps alignment
   }
 }
 
@@ -490,6 +567,132 @@ function RequestUriArgCompleter {
   # NOTE: can only use exported functions here!!!
   $Requests = Get-ApiRequest
   $Requests | Where-Object { $_.GetUri() -like "$wordToComplete*" } | ForEach-Object { $_.GetUri() }
+}
+
+function Show-CollectionsMenu {
+  param (
+    [Parameter(Mandatory)]
+    [ApiConfig]
+    $ApiConfig,
+
+    [Parameter(Mandatory = $false)]
+    [bool]$OrderByUsage = $false
+  )
+  
+  Show-ApiTrademark
+  
+  Write-Host "NOTE: Use Arrow Keys to navigate, Enter to approve/select and Esc to navigate back" -ForegroundColor DarkGray
+  Write-Host ""
+
+  if ($null -eq $ApiConfig.Collections.Values -or $ApiConfig.Collections.Values.Count -eq 0) {
+    Write-Warning "No collections and requests to display! Please make some requests first -> Invoke-ApiRequest..."
+    Write-Host ""
+    return
+  }
+
+  Write-ApiHeader "Requests grouped by Collection (Base Uri)"
+  if ($OrderByUsage) { $SortedCollections = $ApiConfig.Collections.Values | Sort-Object -Property @{Expression = "UsageCount"; Descending = $true }, @{Expression = "BaseUri"; Descending = $false } }
+  else { $SortedCollections = $ApiConfig.Collections.Values | Sort-Object -Property BaseUri }
+  
+  $CollectionItems = ConvertTo-CliMenuItems -Items $SortedCollections -LabelFunction { param($Col) return "$($Col.BaseUri.ToLower()) ($($Col.Requests.Count) Requests)" }
+  $SelectedCollection = Show-CliMenu -Items $CollectionItems
+  Clear-Host
+
+  if ($SelectedCollection) {
+    Show-RequestsMenu -ApiConfig $ApiConfig -Collection $SelectedCollection -OrderByUsage $OrderByUsage
+  }
+}
+
+function Show-RequestsMenu {
+  param (
+    [Parameter(Mandatory)]
+    [ApiConfig]
+    $ApiConfig,
+
+    [Parameter(Mandatory)]
+    [ApiCollection]
+    $Collection,
+
+    [Parameter(Mandatory = $false)]
+    [bool]$OrderByUsage = $false
+  )
+
+  if ($null -eq $Collection.Requests.Values -or $Collection.Requests.Values.Count -eq 0) {
+    Write-Warning "No requests to display! Please make some requests first -> Invoke-ApiRequest..."
+    Write-Host ""
+    
+    Show-CollectionsMenu -ApiConfig $ApiConfig
+  }
+
+  Write-ApiHeader "Requests for Base Uri '$Collection'"
+  Write-Host "Headers: $($Collection.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor DarkGray
+  Write-Host "Requests: $($Collection.Requests.Count)" -ForegroundColor DarkGray
+  Write-Host ""
+
+  if ($OrderByUsage) { $SortedRequests = $Collection.Requests.Values | Sort-Object -Property @{Expression = "UsageCount"; Descending = $true }, @{Expression = "Path"; Descending = $false } }
+  else { $SortedRequests = $Collection.Requests.Values | Sort-Object -Property Path, Method }
+
+  $RequestItems = ConvertTo-CliMenuItems -Items $SortedRequests -LabelFunction { param($Req) return "$(ToFixedLength -Text $Req.Method.ToUpper() -Length 8) $($Req.Path) => (Usage: $($Req.UsageCount), Headers: $($Req.Headers.Count), Body: $($null -ne $Req.Body))" }
+  $SelectedRequest = Show-CliMenu -Items $RequestItems -ErrorAction Stop
+  Clear-Host
+
+  if ($SelectedRequest) {
+    Show-RequestDetailMenu -ApiConfig $ApiConfig -Collection $Collection -Request $SelectedRequest
+  }
+  else {
+    Show-CollectionsMenu -ApiConfig $ApiConfig -OrderByUsage $OrderByUsage
+  }
+}
+
+function Show-RequestDetailMenu {
+  param (
+    [Parameter(Mandatory)]
+    [ApiConfig]
+    $ApiConfig,
+
+    [Parameter(Mandatory)]
+    [ApiCollection]
+    $Collection,
+
+    [Parameter(Mandatory)]
+    [ApiRequest]
+    $Request
+  )
+
+  Write-ApiHeader "Actions for request '$Request'"
+  Write-Host "Method: $($Request.Method.ToUpper())" -ForegroundColor DarkGray
+  Write-Host "Path: $($Request.Path)" -ForegroundColor DarkGray
+  Write-Host "Headers: $($Request.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor DarkGray
+  Write-Host "Body: $($Request.Body | ConvertTo-Json -Depth 10 -Compress)" -ForegroundColor DarkGray
+  Write-Host "Usage count: $($Request.UsageCount)" -ForegroundColor DarkGray
+  Write-Host ""
+  $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Clipboard", "Details", "Remove", "Cancel")
+  $Action = Show-CliMenu -Items $ActionItems
+  Clear-Host
+
+  switch ($Action) {
+    "Run" {
+      $Request | Invoke-ApiRequest
+    }
+    "Clipboard" {
+      $Body = if ($Request.Body) { "-Body $(ConvertTo-Expression -Object $Request.Body -Expand -1)" } else { "" }
+      $Headers = if ($Request.Headers) { "-Headers $(ConvertTo-Expression -Object $Request.Headers -Expand -1)" } else { "" }
+      $PersistSessionCookie = if ($Request.PersistSessionCookie) { "-PersistSessionCookie" }else { "" }
+      $Command = "Invoke-ApiRequest -Uri '$($Request.GetUri())' -Method $($Request.Method) $Body $Headers $PersistSessionCookie" 
+      Write-Host "Selected command is now in your clipboard" -ForegroundColor DarkGray
+      Write-Host $Command -ForegroundColor DarkGray
+      Set-Clipboard -Value $Command
+    }
+    "Details" {
+      $Request
+    }
+    "Remove" {
+      $Request | Remove-ApiRequest
+    }
+    Default {
+      Show-RequestsMenu -ApiConfig $ApiConfig -Collection $Collection -OrderByUsage $OrderByUsage
+    }
+  }
 }
 
 #endregion
@@ -643,78 +846,16 @@ Show-ApiRequest
 #>
 function Show-ApiRequest {
   [CmdletBinding()]
+  param (
+    [Parameter(Mandatory = $false, Position = 0)]
+    [switch]$OrderByUsage
+  )
 
   $ApiConfig = Get-ApiConfig
 
   Clear-Host
-  Show-ApiTrademark
-
-  if ($null -eq $ApiConfig.Collections.Values -or $ApiConfig.Collections.Values.Count -eq 0) {
-    Write-Warning "No collections and requests to display! Please make some requests first -> Invoke-ApiRequest..."
-    Write-Host ""
-    return
-  }
-
-  Write-ApiHeader "Requests grouped by collection (Base Uri):"
-  $SortedCollections = $ApiConfig.Collections.Values | Sort-Object -Property BaseUri
-  $CollectionItems = ConvertTo-CliMenuItems -Items $SortedCollections -LabelFunction { param($Col) return "$($Col.BaseUri) ($($Col.Requests.Count) Requests)" }
-  $SelectedCollection = Show-CliMenu -Items $CollectionItems
-  if ($null -eq $SelectedCollection) {
-    Clear-Host
-    return
-  }
-
-  Clear-Host
-
-  if ($null -eq $SelectedCollection.Requests.Values -or $SelectedCollection.Requests.Values.Count -eq 0) {
-    Write-Warning "No requests to display! Please make some requests first -> Invoke-ApiRequest..."
-    Write-Host ""
-    return
-  }
-
-  Write-ApiHeader "Requests for uri '$SelectedCollection':"
-  Write-Host "Headers: $($SelectedCollection.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor DarkGray
-  Write-Host ""
-  $SortedRequests = $SelectedCollection.Requests.Values | Sort-Object -Property Method, Path
-  $RequestItems = ConvertTo-CliMenuItems -Items $SortedRequests -LabelFunction { param($Req) return "$(ToFixedLength -Text $Req.Method -Length 8) $($Req.Path) => (Headers: $($Req.Headers.Count), Body: $($null -ne $Req.Body))" }
-  $SelectedRequest = Show-CliMenu -Items $RequestItems
-  if ($null -eq $SelectedRequest) {
-    Clear-Host
-    return
-  }
-
-  Clear-Host
-  Write-ApiHeader "Actions for request '$SelectedRequest':"
-  Write-Host "Method: $($SelectedRequest.Method)" -ForegroundColor DarkGray
-  Write-Host "Path: $($SelectedRequest.Path)" -ForegroundColor DarkGray
-  Write-Host "Headers: $($SelectedRequest.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor DarkGray
-  Write-Host "Body: $($SelectedRequest.Body | ConvertTo-Json -Depth 10 -Compress)" -ForegroundColor DarkGray
-  Write-Host ""
-  $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Clipboard", "Details", "Remove", "Cancel")
-  $Action = Show-CliMenu -Items $ActionItems
-  Clear-Host
-
-  switch ($Action) {
-    "Run" {
-      $SelectedRequest | Invoke-ApiRequest
-    }
-    "Clipboard" {
-      $Body = if ($SelectedRequest.Body) { "-Body $(ConvertTo-Expression -Object $SelectedRequest.Body -Expand -1)" } else { "" }
-      $Headers = if ($SelectedRequest.Headers) { "-Headers $(ConvertTo-Expression -Object $SelectedRequest.Headers -Expand -1)" } else { "" }
-      $PersistSessionCookie = if ($SelectedRequest.PersistSessionCookie) { "-PersistSessionCookie" }else { "" }
-      $Command = "Invoke-ApiRequest -Uri '$($SelectedRequest.GetUri())' -Method $($SelectedRequest.Method) $Body $Headers $PersistSessionCookie" 
-      Write-Host "Selected command is now in your clipboard" -ForegroundColor DarkGray
-      Write-Host $Command -ForegroundColor DarkGray
-      Set-Clipboard -Value $Command
-    }
-    "Details" {
-      $SelectedRequest
-    }
-    "Remove" {
-      $SelectedRequest | Remove-ApiRequest
-    }
-    Default {}
-  }
+  
+  Show-CollectionsMenu -ApiConfig $ApiConfig -OrderByUsage $OrderByUsage
 }
 
 <#
@@ -835,6 +976,9 @@ An optional body (gets serialized to JSON)
 .PARAMETER PersistSessionCookie
 If the request hits an auth endpoint which creates session cookies, this flag must be set, so that the cookies are reused for later requests
 
+.PARAMETER BearerToken
+Submits the supplied bearer token as an Authentication header
+
 .PARAMETER Uri
 The full Uri to the endpoint
 
@@ -843,6 +987,15 @@ Additional request specific headers (Headers are then merged with (1) default he
 
 .PARAMETER SaveHeadersOnCollection
 Headers specified on this request will be saved on the parent collection and reused by all future requests within this collection
+
+.PARAMETER SkipCertificateCheck
+Don't validate https certificates (helpful if there are self signed certificates)
+
+.PARAMETER Raw
+Output raw response
+
+.PARAMETER NoHistory
+The request will not be saved in the posht.json file (for sensitive requests)
 
 .PARAMETER RequestData
 Invoke-ApiRequest can also be called with 'RequestData' from a past request (see Get-ApiRequest)
@@ -875,6 +1028,18 @@ function Invoke-ApiRequest {
 
     [Parameter(ParameterSetName = "Single")]
     [switch]$SaveHeadersOnCollection = $false,
+    
+    [Parameter(ParameterSetName = "Single")]
+    [switch]$SkipCertificateCheck = $false,
+    
+    [Parameter(ParameterSetName = "Single")]
+    [switch]$NoHistory = $false,
+    
+    [Parameter(ParameterSetName = "Single")]
+    [switch]$Raw = $false,
+    
+    [Parameter(ParameterSetName = "Single")]
+    [string]$BearerToken,
 
     [Parameter(Mandatory = $true, ParameterSetName = "Request", ValueFromPipeline = $true)]
     [ApiRequest]$RequestData
@@ -890,7 +1055,10 @@ function Invoke-ApiRequest {
       $Method,
       $Uri,
       $Body,
-      $PersistSessionCookie
+      $PersistSessionCookie,
+      $SkipCertificateCheck,
+      $Raw,
+      $BearerToken
     )
   } 
   # Base on an existing/old request
@@ -898,7 +1066,9 @@ function Invoke-ApiRequest {
     $Request = $RequestData
   }
 
-  $ApiConfig.AddRequest($Request)
+  if (-Not $NoHistory) {
+    $ApiConfig.AddRequest($Request)
+  }
 
   # 1. Default Headers from Api Config
   $ResolvedHeaders = $ApiConfig.GetDefaultHeaders()
@@ -922,40 +1092,60 @@ function Invoke-ApiRequest {
     }
   }
 
-  Save-ApiConfig -ApiConfig $ApiConfig
+  if ($Request.BearerToken) {
+    $ResolvedHeaders["Authorization"] = "Bearer $($Request.BearerToken)"
+  }
+
+  if (-Not $NoHistory) {
+    Save-ApiConfig -ApiConfig $ApiConfig
+  }
 
   Write-Verbose "$Request"
   Write-Verbose "Resolved Headers: $($ResolvedHeaders | ConvertTo-Json -Depth 2 -Compress)"
 
-  $RestMethodArgs = [hashtable]@{
+  $WebRequestArgs = [hashtable]@{
     Method               = $Request.Method
     Headers              = $ResolvedHeaders
     Uri                  = "$($Request.BaseUri)$($Request.Path)"
-    SkipCertificateCheck = $true
+    SkipCertificateCheck = $Request.SkipCertificateCheck
+    ErrorAction          = 'Stop'
   }
 
   if ($Request.Body) {
     $BodyJson = $Request.Body | ConvertTo-Json -Depth 10
-    $RestMethodArgs['Body'] = $BodyJson
+    $WebRequestArgs['Body'] = $BodyJson
   }
   if ($Request.PersistSession) {
     Clear-ApiSession
-    $RestMethodArgs['SessionVariable'] = "CookieSession"
+    $WebRequestArgs['SessionVariable'] = "SessionVarTemp"
   }
   $ApiSession = Get-ApiSession
-  if ($null -ne $ApiSession) {
+  if ($null -ne $ApiSession -and -not $Request.BearerToken) {
     Write-Verbose "Use existing session"
-    $RestMethodArgs['WebSession'] = $ApiSession
+    $WebRequestArgs['WebSession'] = $ApiSession
   }
 
-  $Response = Invoke-RestMethod @RestMethodArgs
+  try {
+    $Response = Invoke-WebRequest @WebRequestArgs
+    Write-Verbose "Status code: $($Response.StatusCode) $($Response.StatusDescription)"
+    if ($Response -and -not $Request.Raw) {
+      $Response = $Response.Content | ConvertFrom-Json -Depth 20
+    }
 
-  if ($null -ne $CookieSession) {
-    Write-Verbose "Persist Session"
-    Set-ApiSession $CookieSession
+    if ($null -ne $SessionVarTemp -and $Request.PersistSession) {
+      Write-Verbose "Persist Session"
+      $null = $SessionVarTemp.Headers.Remove("Authorization")
+      #TODO: When to remove cookies and when to remove bearer token
+      #$ApiSession.Cookies = [System.Net.CookieContainer]::new(4)
+      Set-ApiSession $SessionVarTemp
+    }
+  
+    return $Response
   }
-
-  $Response
+  catch {
+    Write-Verbose "Status code: $($_.Exception.StatusCode)"
+    throw $_
+  }
 }
 Register-ArgumentCompleter -CommandName Invoke-ApiRequest -ParameterName Uri -ScriptBlock { RequestUriArgCompleter @args }
 
@@ -1128,7 +1318,7 @@ function Start-Migrations {
 
   if ($ApiConfig.Version -eq $Script:ApiConfigFileVersion) { return }
 
-  # V1: Lowercase hashtable keys  
+  #V1: Lowercase hashtable keys  
   if ($ApiConfig.Version -lt 1) {
     Write-Verbose "Run Migration 1: Lowercase hashtable keys"
     $Collections = [hashtable]@{}
@@ -1138,7 +1328,7 @@ function Start-Migrations {
         # Fix Path
         $PathAndQuery = $Request.Path.Split('?')
         $Request.Path = "$($PathAndQuery[0].ToLower())"
-        if($null -ne $PathAndQuery[1]) { $Request.Path += "?$($PathAndQuery[1])" }
+        if ($null -ne $PathAndQuery[1]) { $Request.Path += "?$($PathAndQuery[1])" }
 
         $Requests[$Request.GetCollectionKey()] = $Request
       }
@@ -1147,6 +1337,16 @@ function Start-Migrations {
     }
     $ApiConfig.Collections = $Collections
     $ApiConfig.Version = 1
+    Save-ApiConfig -ApiConfig $ApiConfig
+  }
+
+  if($ApiConfig.Version -lt 2){
+    # Make a backup but no structural changes
+    $ConfigFilePath = Resolve-ApiConfigFilePath
+    $BackupPath = $ConfigFilePath.Replace($Script:ApiConfigFileName, "posht_$(Get-Date -Format "MM-dd-yyyyTHH-mm").json")
+    Save-ApiConfig -ApiConfig $ApiConfig -FullPath $BackupPath
+
+    $ApiConfig.Version = 2
     Save-ApiConfig -ApiConfig $ApiConfig
   }
 }

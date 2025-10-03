@@ -22,7 +22,7 @@ That's where the Powershell 'Posht' module comes to the rescue. Testing API is n
 The central function of the module is **`Invoke-ApiRequest`** which is a wrapper around the Powershell native function `Invoke-WebRequest`.
 
 ```powershell
-Invoke-ApiRequest [-Method <String>] [-Body <Object>] [-PersistSessionCookie] -Uri <String> [-Headers <Hashtable>] [-SaveHeadersOnCollection] [<CommonParameters>]
+Invoke-ApiRequest -Uri <String> [-Method <String>] [-Body <Object>] [-PersistSessionCookie] [-BearerToken] [-Headers <Hashtable>] [-SaveHeadersOnCollection] [-Raw] [-SkipCertificateCheck] [-NoHistory] [<CommonParameters>]
 Invoke-ApiRequest -RequestData <ApiRequest> [<CommonParameters>]
 ```
 
@@ -46,9 +46,9 @@ However it's also possible to have multiple 'local' Posht config files (For exam
 
 ### Authenticated Requests
 
-When you need to do authenticated requests it's possible to do either Cookie based authentication or with an Authentication header. It's important though to tell Posht to remember the Session Cookie (`-PersistSession`) or the Authentication header (`-Headers @{Authentication="Bearer xyz"} -SaveHeadersOnCollection`) for coming requests. See [Examples](#authentication-cookie-based) for the details.
+When you need to do authenticated requests it's possible to do either Cookie based authentication or with an Authentication header. See [Examples](#authentication-cookie-based) for the details. It's important though to tell Posht to remember the Session Cookie (`-PersistSession`) or the Authentication header (`-Headers @{Authentication="Bearer xyz"} -SaveHeadersOnCollection`) for future requests. For single requests it's possible to directly specify a bearer token with `-BearerToken xyz`.
 
-Currently Posht only supports one active session at a time. So, if you switch between collections you most probably need to login again.
+Note: When using cookies, Posht currently only supports one active session at a time. So, if you switch between collections you most probably need to login again.
 
 ### Examples
 
@@ -75,7 +75,8 @@ When a request is found which we would like to run again we can use the pipe (`|
 
 If you prefer a more menu like approach to browse trough existing collections and requests there is the CLI menu:
 
-- Show a menu to browse collections and requests: `Show-ApiRequest`
+- Show a menu to browse collections and requests (ordered by request url and path): `Show-ApiRequest`
+- If you prefer an ordering by usage (most used collections and requests on top): `Show-ApiRequest -OrderByUsage`
 
 ![Posht CLI Menu](/assets/posht_cli_menu.png)
 
@@ -89,6 +90,7 @@ If you prefer a more menu like approach to browse trough existing collections an
 
 - Obtain bearer token
 - Do a first request with Authentication Header and tell Posht to remember it (`-SaveHeadersOnCollection` Parameter) for all requests in the same collection: `Invoke-ApiRequest -Method Get -Uri "https://foo.bar/cars" -Headers @{ Authentication="Bearer f4f4994a875d4d1ca4d13408b9e027df4" } -SaveHeadersOnCollection`
+- For single requests or if you have the bearer token in a variable: `Invoke-ApiRequest -Method Get -Uri "https://foo.bar/cars" -BearerToken $token`
 
 ## Sponsors
 
