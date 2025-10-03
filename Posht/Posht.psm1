@@ -976,6 +976,9 @@ An optional body (gets serialized to JSON)
 .PARAMETER PersistSessionCookie
 If the request hits an auth endpoint which creates session cookies, this flag must be set, so that the cookies are reused for later requests
 
+.PARAMETER BearerToken
+Submits the supplied bearer token as an Authentication header
+
 .PARAMETER Uri
 The full Uri to the endpoint
 
@@ -985,8 +988,14 @@ Additional request specific headers (Headers are then merged with (1) default he
 .PARAMETER SaveHeadersOnCollection
 Headers specified on this request will be saved on the parent collection and reused by all future requests within this collection
 
+.PARAMETER SkipCertificateCheck
+Don't validate https certificates (helpful if there are self signed certificates)
+
 .PARAMETER Raw
 Output raw response
+
+.PARAMETER NoHistory
+The request will not be saved in the posht.json file (for sensitive requests)
 
 .PARAMETER RequestData
 Invoke-ApiRequest can also be called with 'RequestData' from a past request (see Get-ApiRequest)
