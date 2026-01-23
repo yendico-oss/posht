@@ -1,5 +1,9 @@
 # Release Notes of Posht
 
+## 2.0.1
+
+* Feat: change Posht banner image
+
 ## 2.0.0
 
 * Feat: new `-SkipCertificateCheck` switch parameter which is passed trough to the `Invoke-WebRequest` function

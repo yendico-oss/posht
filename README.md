@@ -1,4 +1,4 @@
-# ![Posht PS Module Banner](/assets/posht_logo_narrow.png)
+# ![Posht PS Module Banner](/assets/posht_logo.png)
 
 As a backend (API) developer or also as a consumer of http APIs we need to do a lot of API calls. Also there is quite a lot of repetition and who wants to type `Invoke-Webrequest ...` or `curl ...`, remembering the query arguments or body, over and over again. While there are tools for that (Postman, Insomnia), I was looking for a more integrated approach. I didn't want to switch to my memory hungry Postman instance just for a single http call on my 16GB laptop already running docker workloads...
 
