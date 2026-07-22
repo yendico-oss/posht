@@ -398,9 +398,13 @@ function Show-CliMenu {
         elseif ($VKeyCode -eq 35) { $Position = $Items.Count - 1 } #bottom
         elseif ($PressedKey.Character -eq ' ') { $Selection = Set-CliMenuSelection $Position $Selection }
         
-        if ($Position -lt 0) { $Position = 0 }
-        if ($VKeyCode -eq 27) { $Position = $null }
-        if ($Position -ge $Items.Count) { $Position = $Items.Count - 1 }
+        if ($VKeyCode -eq 27) {
+          $Position = $null # Esc -> cancel, no valid position
+        }
+        else {
+          if ($Position -lt 0) { $Position = 0 }
+          if ($Position -ge $Items.Count) { $Position = $Items.Count - 1 }
+        }
 
         # Adjust window end and start values
         if ($Position -lt $WindowStart) {
@@ -641,7 +645,7 @@ function Show-RequestsMenu {
   else { $SortedRequests = $Collection.Requests.Values | Sort-Object -Property Path, Method }
 
   $RequestItems = ConvertTo-CliMenuItems -Items $SortedRequests -LabelFunction { param($Req) return "$(ToFixedLength -Text $Req.Method.ToUpper() -Length 8) $($Req.Path) => (Usage: $($Req.UsageCount), Headers: $($Req.Headers.Count), Body: $($null -ne $Req.Body))" }
-  $SelectedRequest = Show-CliMenu -Items $RequestItems -ErrorAction Stop
+  $SelectedRequest = Show-CliMenu -Items $RequestItems
   Clear-Host
 
   if ($SelectedRequest) {
