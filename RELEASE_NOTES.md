@@ -1,5 +1,10 @@
 # Release Notes of Posht
 
+## 2.0.2
+
+* Fix: cli menu on mac os failed because of missing colors (`$Host.UI.RawUI.ForegroundColor` seems not to be available on mac)
+* Fix: increased serialization depth for posht.json to 20
+
 ## 2.0.1
 
 * Feat: change Posht banner image
