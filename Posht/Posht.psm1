@@ -250,7 +250,7 @@ function Read-ApiConfig {
     Write-Verbose "Read ApiConfig from $ConfigFilePath"
     $ConfigFile = Get-Content -Path $ConfigFilePath -Raw
 
-    $RawApiConfig = $ConfigFile | ConvertFrom-Json -Depth 10 -AsHashtable
+    $RawApiConfig = $ConfigFile | ConvertFrom-Json -Depth 20 -AsHashtable
     $ApiConfig = [ApiConfig]::new($RawApiConfig)
     Start-Migrations -ApiConfig $ApiConfig
 
@@ -327,9 +327,16 @@ function Write-ClearedLine {
     [int]$ClearingWidth,
     [ConsoleColor]$ForegroundColor = $Host.UI.RawUI.ForegroundColor
   )
+
   # pad text to width, truncate if longer
   $Line = $Text.PadRight($ClearingWidth).Substring(0, $ClearingWidth)
-  Write-Host $Line -ForegroundColor $ForegroundColor
+
+  if($ForegroundColor -eq -1){
+    Write-Host $Line
+  }
+  else{
+    Write-Host $Line -ForegroundColor $ForegroundColor
+  }
 }
 
 function Set-CliMenuSelection {
@@ -466,7 +473,7 @@ function Build-CliMenu {
   $ConsoleWidth = [System.Console]::WindowWidth
 
   if ($Offset -gt 0) {
-    Write-ClearedLine -Text "   ... more above ..." -ForegroundColor DarkGray -ClearingWidth $ConsoleWidth
+    Write-ClearedLine -Text "   ... more above ..." -ForegroundColor ([System.ConsoleColor]::DarkGray) -ClearingWidth $ConsoleWidth
   }
   else {
     Write-ClearedLine -Text "" -ClearingWidth $ConsoleWidth # empty line if no indicator, keeps alignment
@@ -488,7 +495,7 @@ function Build-CliMenu {
       }
 
       if ($i -eq $RelativePosition) {
-        Write-ClearedLine ">> $Label" -ForegroundColor Green -ClearingWidth $ConsoleWidth
+        Write-ClearedLine ">> $Label" -ForegroundColor ([System.ConsoleColor]::Green) -ClearingWidth $ConsoleWidth
       }
       else {
         Write-ClearedLine "   $Label" -ClearingWidth $ConsoleWidth
@@ -498,7 +505,7 @@ function Build-CliMenu {
 
   # --- show "more below" indicator ---
   if ($Offset + $Items.Count -lt $TotalCount) {
-    Write-ClearedLine "   ... more below ..." -ForegroundColor DarkGray -ClearingWidth $ConsoleWidth
+    Write-ClearedLine "   ... more below ..." -ForegroundColor ([System.ConsoleColor]::DarkGray) -ClearingWidth $ConsoleWidth
   }
   else {
     Write-ClearedLine "" -ClearingWidth $ConsoleWidth # empty line if no indicator, keeps alignment
@@ -581,7 +588,7 @@ function Show-CollectionsMenu {
   
   Show-ApiTrademark
   
-  Write-Host "NOTE: Use Arrow Keys to navigate, Enter to approve/select and Esc to navigate back" -ForegroundColor DarkGray
+  Write-Host "NOTE: Use Arrow Keys to navigate, Enter to approve/select and Esc to navigate back" -ForegroundColor ([System.ConsoleColor]::DarkGray)
   Write-Host ""
 
   if ($null -eq $ApiConfig.Collections.Values -or $ApiConfig.Collections.Values.Count -eq 0) {
@@ -625,8 +632,8 @@ function Show-RequestsMenu {
   }
 
   Write-ApiHeader "Requests for Base Uri '$Collection'"
-  Write-Host "Headers: $($Collection.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor DarkGray
-  Write-Host "Requests: $($Collection.Requests.Count)" -ForegroundColor DarkGray
+  Write-Host "Headers: $($Collection.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
+  Write-Host "Requests: $($Collection.Requests.Count)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
   Write-Host ""
 
   if ($OrderByUsage) { $SortedRequests = $Collection.Requests.Values | Sort-Object -Property @{Expression = "UsageCount"; Descending = $true }, @{Expression = "Path"; Descending = $false } }
@@ -660,11 +667,11 @@ function Show-RequestDetailMenu {
   )
 
   Write-ApiHeader "Actions for request '$Request'"
-  Write-Host "Method: $($Request.Method.ToUpper())" -ForegroundColor DarkGray
-  Write-Host "Path: $($Request.Path)" -ForegroundColor DarkGray
-  Write-Host "Headers: $($Request.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor DarkGray
-  Write-Host "Body: $($Request.Body | ConvertTo-Json -Depth 10 -Compress)" -ForegroundColor DarkGray
-  Write-Host "Usage count: $($Request.UsageCount)" -ForegroundColor DarkGray
+  Write-Host "Method: $($Request.Method.ToUpper())" -ForegroundColor ([System.ConsoleColor]::DarkGray)
+  Write-Host "Path: $($Request.Path)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
+  Write-Host "Headers: $($Request.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
+  Write-Host "Body: $($Request.Body | ConvertTo-Json -Depth 20 -Compress)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
+  Write-Host "Usage count: $($Request.UsageCount)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
   Write-Host ""
   $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Clipboard", "Details", "Remove", "Cancel")
   $Action = Show-CliMenu -Items $ActionItems
@@ -679,8 +686,8 @@ function Show-RequestDetailMenu {
       $Headers = if ($Request.Headers) { "-Headers $(ConvertTo-Expression -Object $Request.Headers -Expand -1)" } else { "" }
       $PersistSessionCookie = if ($Request.PersistSessionCookie) { "-PersistSessionCookie" }else { "" }
       $Command = "Invoke-ApiRequest -Uri '$($Request.GetUri())' -Method $($Request.Method) $Body $Headers $PersistSessionCookie" 
-      Write-Host "Selected command is now in your clipboard" -ForegroundColor DarkGray
-      Write-Host $Command -ForegroundColor DarkGray
+      Write-Host "Selected command is now in your clipboard" -ForegroundColor ([System.ConsoleColor]::DarkGray)
+      Write-Host $Command -ForegroundColor ([System.ConsoleColor]::DarkGray)
       Set-Clipboard -Value $Command
     }
     "Details" {
@@ -1112,7 +1119,7 @@ function Invoke-ApiRequest {
   }
 
   if ($Request.Body) {
-    $BodyJson = $Request.Body | ConvertTo-Json -Depth 10
+    $BodyJson = $Request.Body | ConvertTo-Json -Depth 20
     $WebRequestArgs['Body'] = $BodyJson
   }
   if ($Request.PersistSession) {
