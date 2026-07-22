@@ -1,5 +1,11 @@
 # Release Notes of Posht
 
+## 2.0.3
+
+* Fix: `Remove-ApiRequest` with `-Uri`/`-Method` (non-pipeline) threw due to a wrong `ApiRequest` constructor argument count
+* Fix: clipboard action in the CLI menu now correctly emits `-PersistSessionCookie` (read the wrong property before)
+* Fix: `-OrderByUsage` preference is no longer lost when navigating back through the CLI menu
+
 ## 2.0.2
 
 * Fix: cli menu on mac os failed because of missing colors (`$Host.UI.RawUI.ForegroundColor` seems not to be available on mac)

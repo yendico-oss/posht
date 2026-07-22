@@ -331,10 +331,10 @@ function Write-ClearedLine {
   # pad text to width, truncate if longer
   $Line = $Text.PadRight($ClearingWidth).Substring(0, $ClearingWidth)
 
-  if($ForegroundColor -eq -1){
+  if ($ForegroundColor -eq -1) {
     Write-Host $Line
   }
-  else{
+  else {
     Write-Host $Line -ForegroundColor $ForegroundColor
   }
 }
@@ -627,8 +627,9 @@ function Show-RequestsMenu {
   if ($null -eq $Collection.Requests.Values -or $Collection.Requests.Values.Count -eq 0) {
     Write-Warning "No requests to display! Please make some requests first -> Invoke-ApiRequest..."
     Write-Host ""
-    
-    Show-CollectionsMenu -ApiConfig $ApiConfig
+
+    Show-CollectionsMenu -ApiConfig $ApiConfig -OrderByUsage $OrderByUsage
+    return
   }
 
   Write-ApiHeader "Requests for Base Uri '$Collection'"
@@ -644,7 +645,7 @@ function Show-RequestsMenu {
   Clear-Host
 
   if ($SelectedRequest) {
-    Show-RequestDetailMenu -ApiConfig $ApiConfig -Collection $Collection -Request $SelectedRequest
+    Show-RequestDetailMenu -ApiConfig $ApiConfig -Collection $Collection -Request $SelectedRequest -OrderByUsage $OrderByUsage
   }
   else {
     Show-CollectionsMenu -ApiConfig $ApiConfig -OrderByUsage $OrderByUsage
@@ -663,7 +664,10 @@ function Show-RequestDetailMenu {
 
     [Parameter(Mandatory)]
     [ApiRequest]
-    $Request
+    $Request,
+
+    [Parameter(Mandatory = $false)]
+    [bool]$OrderByUsage = $false
   )
 
   Write-ApiHeader "Actions for request '$Request'"
@@ -684,7 +688,7 @@ function Show-RequestDetailMenu {
     "Clipboard" {
       $Body = if ($Request.Body) { "-Body $(ConvertTo-Expression -Object $Request.Body -Expand -1)" } else { "" }
       $Headers = if ($Request.Headers) { "-Headers $(ConvertTo-Expression -Object $Request.Headers -Expand -1)" } else { "" }
-      $PersistSessionCookie = if ($Request.PersistSessionCookie) { "-PersistSessionCookie" }else { "" }
+      $PersistSessionCookie = if ($Request.PersistSession) { "-PersistSessionCookie" } else { "" }
       $Command = "Invoke-ApiRequest -Uri '$($Request.GetUri())' -Method $($Request.Method) $Body $Headers $PersistSessionCookie" 
       Write-Host "Selected command is now in your clipboard" -ForegroundColor ([System.ConsoleColor]::DarkGray)
       Write-Host $Command -ForegroundColor ([System.ConsoleColor]::DarkGray)
@@ -1206,7 +1210,10 @@ function Remove-ApiRequest {
         $Method,
         $Uri,
         $null,
-        $false
+        $false,
+        $false,
+        $false,
+        ""
       )
     }
   
@@ -1347,7 +1354,7 @@ function Start-Migrations {
     Save-ApiConfig -ApiConfig $ApiConfig
   }
 
-  if($ApiConfig.Version -lt 2){
+  if ($ApiConfig.Version -lt 2) {
     # Make a backup but no structural changes
     $ConfigFilePath = Resolve-ApiConfigFilePath
     $BackupPath = $ConfigFilePath.Replace($Script:ApiConfigFileName, "posht_$(Get-Date -Format "MM-dd-yyyyTHH-mm").json")
