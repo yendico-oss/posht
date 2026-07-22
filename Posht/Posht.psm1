@@ -22,6 +22,7 @@ class ApiRequest {
   [bool]$Raw = $false
   [string]$BearerToken
   [int]$UsageCount = 1
+  [bool]$Favorite = $false
 
   ApiRequest($ApiRequestRaw) {
     # from json
@@ -34,6 +35,7 @@ class ApiRequest {
     $this.SkipCertificateCheck = $ApiRequestRaw.SkipCertificateCheck
     $this.Raw = $ApiRequestRaw.Raw
     $this.BearerToken = $ApiRequestRaw.BearerToken
+    $this.Favorite = [bool]$ApiRequestRaw.Favorite
 
     if ($ApiRequestRaw.UsageCount) { $this.UsageCount = $ApiRequestRaw.UsageCount }
     else { $this.UsageCount = 1 }
@@ -160,7 +162,10 @@ class ApiConfig {
       $ReqColKey = $Request.GetCollectionKey()
       $ExistingCollection.UsageCount++
       $ExistingRequest = $ExistingCollection.Requests[$ReqColKey]
-      if ($ExistingRequest) { $Request.UsageCount = $ExistingRequest.UsageCount + 1 }
+      if ($ExistingRequest) {
+        $Request.UsageCount = $ExistingRequest.UsageCount + 1
+        $Request.Favorite = $ExistingRequest.Favorite
+      }
       
       # Add/Overwrite
       $ExistingCollection.Requests[$ReqColKey] = $Request
@@ -188,6 +193,13 @@ class CliMenuItem {
   [string] ToString() {
     return $this.Label
   }
+}
+
+class CliMenuResult {
+  [string]$Kind      # 'Select' | 'Back' | 'Favorite' | 'Reorder'
+  [System.Object]$Data
+  [string]$Filter
+  [System.Object]$Highlight
 }
 
 #endregion
@@ -321,6 +333,65 @@ function ConvertTo-CliMenuItems {
   return [CliMenuItem[]]$MenuItems
 }
 
+function Select-ApiMenuItem {
+  param (
+    [Parameter(Mandatory = $false)]
+    [CliMenuItem[]]$Items,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Filter
+  )
+
+  if (-not $Items) { return @() }
+  if ([string]::IsNullOrEmpty($Filter)) { return $Items }
+
+  $needle = $Filter.ToLower()
+  return @($Items | Where-Object { $_.Label.ToLower().Contains($needle) })
+}
+
+function Sort-ApiRequestList {
+  param (
+    [Parameter(Mandatory = $false)]
+    [object[]]$Requests,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet('Name', 'Usage')]
+    [string]$Mode = 'Name'
+  )
+
+  if (-not $Requests) { return @() }
+
+  $favFirst = @{ Expression = { -not $_.Favorite } } # $false (favorite) sorts before $true
+  if ($Mode -eq 'Usage') {
+    return @($Requests | Sort-Object -Stable -Property $favFirst,
+      @{ Expression = 'UsageCount'; Descending = $true },
+      @{ Expression = 'Path'; Descending = $false })
+  }
+  return @($Requests | Sort-Object -Stable -Property $favFirst,
+    @{ Expression = 'Path'; Descending = $false },
+    @{ Expression = 'Method'; Descending = $false })
+}
+
+function Sort-ApiCollectionList {
+  param (
+    [Parameter(Mandatory = $false)]
+    [object[]]$Collections,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet('Name', 'Usage')]
+    [string]$Mode = 'Name'
+  )
+
+  if (-not $Collections) { return @() }
+
+  if ($Mode -eq 'Usage') {
+    return @($Collections | Sort-Object -Stable -Property `
+      @{ Expression = 'UsageCount'; Descending = $true },
+      @{ Expression = 'BaseUri'; Descending = $false })
+  }
+  return @($Collections | Sort-Object -Stable -Property BaseUri)
+}
+
 function Write-ClearedLine {
   param(
     [string]$Text,
@@ -339,180 +410,145 @@ function Write-ClearedLine {
   }
 }
 
-function Set-CliMenuSelection {
+function Write-CliMenuFrame {
   param (
-    [Parameter(Mandatory = $true)]
+    [CliMenuItem[]]$Filtered,
     [int]$Position,
-
-    [Parameter(Mandatory = $true)]
-    [array]$Selection
+    [int]$WindowStart,
+    [int]$PageSize,
+    [string]$Breadcrumb,
+    [string]$Filter,
+    [string]$Hint,
+    [int]$TotalCount
   )
 
-  if ($Selection -contains $Position) { 
-    $Result = $Selection | Where-Object { $_ -ne $Position }
+  $w = [System.Console]::WindowWidth
+
+  Write-ClearedLine -Text $Breadcrumb -ForegroundColor ([System.ConsoleColor]::Cyan) -ClearingWidth $w
+
+  if ($Filter) { Write-ClearedLine -Text "Filter: $Filter" -ForegroundColor ([System.ConsoleColor]::Yellow) -ClearingWidth $w }
+  else { Write-ClearedLine -Text "" -ClearingWidth $w }
+
+  if ($WindowStart -gt 0) { Write-ClearedLine -Text "   ... more above ..." -ForegroundColor ([System.ConsoleColor]::DarkGray) -ClearingWidth $w }
+  else { Write-ClearedLine -Text "" -ClearingWidth $w }
+
+  $windowEnd = [Math]::Min($WindowStart + $PageSize - 1, $Filtered.Count - 1)
+  for ($row = 0; $row -lt $PageSize; $row++) {
+    $idx = $WindowStart + $row
+    if ($Filtered.Count -gt 0 -and $idx -ge 0 -and $idx -le $windowEnd) {
+      $label = $Filtered[$idx].Label
+      if ($idx -eq $Position) { Write-ClearedLine -Text ">> $label" -ForegroundColor ([System.ConsoleColor]::Green) -ClearingWidth $w }
+      else { Write-ClearedLine -Text "   $label" -ClearingWidth $w }
+    }
+    else {
+      Write-ClearedLine -Text "" -ClearingWidth $w
+    }
   }
-  else {
-    $Selection += $Position
-    $Result = $Selection
-  }
-  $Result
+
+  if ($Filtered.Count -eq 0) { Write-ClearedLine -Text "   (no matches)" -ForegroundColor ([System.ConsoleColor]::DarkGray) -ClearingWidth $w }
+  elseif ($windowEnd -lt $TotalCount - 1) { Write-ClearedLine -Text "   ... more below ..." -ForegroundColor ([System.ConsoleColor]::DarkGray) -ClearingWidth $w }
+  else { Write-ClearedLine -Text "" -ClearingWidth $w }
+
+  Write-ClearedLine -Text $Hint -ForegroundColor ([System.ConsoleColor]::DarkGray) -ClearingWidth $w
 }
 
 function Show-CliMenu {
   [CmdletBinding()]
   param (
-    [Parameter(Mandatory = $true)]
     [CliMenuItem[]]$Items,
-
-    [Parameter()]
-    [switch]$ReturnIndex = $false,
-
-    [Parameter()]
-    [bool]$Multiselect = $false
+    [string]$Breadcrumb = '',
+    [string]$InitialFilter = '',
+    [System.Object]$HighlightData = $null,
+    [bool]$AllowFavorite = $false,
+    [bool]$AllowReorder = $false
   )
 
-  $VKeyCode = 0
+  $hintParts = @("$([char]0x2191)$([char]0x2193) move", "$([char]0x21B5) select")
+  if ($AllowFavorite) { $hintParts += 'Ctrl+F fav' }
+  if ($AllowReorder) { $hintParts += 'Ctrl+U reorder' }
+  $hintParts += 'type to filter'
+  $hintParts += 'Esc back'
+  $Hint = $hintParts -join ' | '
+
+  $Filter = $InitialFilter
+  $StartPos = [System.Console]::CursorTop
+  $PageSize = [Math]::Max(3, [System.Console]::WindowHeight - $StartPos - 6)
+
+  $Filtered = Select-ApiMenuItem -Items $Items -Filter $Filter
+
   $Position = 0
-  $Selection = @()
+  if ($null -ne $HighlightData) {
+    for ($i = 0; $i -lt $Filtered.Count; $i++) {
+      if ($Filtered[$i].Data -eq $HighlightData) { $Position = $i; break }
+    }
+  }
+  $WindowStart = 0
 
-  if ($Items.Count -gt 0) {
-    try {
-      [System.Console]::CursorVisible = $false #prevents cursor flickering
+  try {
+    [System.Console]::CursorVisible = $false
+    while ($true) {
+      if ($Position -ge $Filtered.Count) { $Position = $Filtered.Count - 1 }
+      if ($Position -lt 0) { $Position = 0 }
+      if ($Position -lt $WindowStart) { $WindowStart = $Position }
+      elseif ($Position -gt $WindowStart + $PageSize - 1) { $WindowStart = $Position - $PageSize + 1 }
+      if ($WindowStart -lt 0) { $WindowStart = 0 }
 
-      $StartPos = [System.Console]::CursorTop
-      $PageSize = ([System.Console]::WindowHeight - $StartPos) - 5
-      $WindowStart = 0
-      $WindowEnd = [Math]::Min($PageSize - 1, $Items.Count - 1) # -1 because window end is used as an inclusive index
+      [System.Console]::SetCursorPosition(0, $StartPos)
+      Write-CliMenuFrame -Filtered $Filtered -Position $Position -WindowStart $WindowStart `
+        -PageSize $PageSize -Breadcrumb $Breadcrumb -Filter $Filter -Hint $Hint -TotalCount $Filtered.Count
 
-      Build-CliMenu -Items $Items[$WindowStart..$WindowEnd] -RelativePosition $Position -Multiselect $Multiselect -Selection $Selection -Offset $WindowStart -TotalCount $Items.Count
-      
-      While (
-        $VKeyCode -ne 13 -and $VKeyCode -ne 27) {
-        $Options = [System.Management.Automation.Host.ReadKeyOptions]"IncludeKeyDown", "NoEcho";
-        $PressedKey = $Host.UI.RawUI.ReadKey($Options)
-        $VKeyCode = $PressedKey.VirtualKeyCode
-        # 38=up-arrow,40=down-arrow,36=home,35=end,27=esc,13=enter
-        if ($VKeyCode -eq 38 -or $PressedKey.Character -eq 'k') { $Position-- } #go up
-        elseif ($VKeyCode -eq 40 -or $PressedKey.Character -eq 'j') { $Position++ } #go down
-        elseif ($VKeyCode -eq 36) { $Position = 0 } #top
-        elseif ($VKeyCode -eq 35) { $Position = $Items.Count - 1 } #bottom
-        elseif ($PressedKey.Character -eq ' ') { $Selection = Set-CliMenuSelection $Position $Selection }
-        
-        if ($VKeyCode -eq 27) {
-          $Position = $null # Esc -> cancel, no valid position
+      $key = [System.Console]::ReadKey($true)
+      $isCtrl = (($key.Modifiers -band [System.ConsoleModifiers]::Control) -ne 0)
+
+      if ($AllowFavorite -and ((($isCtrl -and $key.Key -eq [System.ConsoleKey]::F)) -or $key.KeyChar -eq [char]6)) {
+        if ($Filtered.Count -gt 0) {
+          return [CliMenuResult]@{ Kind = 'Favorite'; Data = $Filtered[$Position].Data; Filter = $Filter; Highlight = $Filtered[$Position].Data }
         }
-        else {
-          if ($Position -lt 0) { $Position = 0 }
-          if ($Position -ge $Items.Count) { $Position = $Items.Count - 1 }
-        }
+        continue
+      }
 
-        # Adjust window end and start values
-        if ($Position -lt $WindowStart) {
-          $WindowStart = $Position
-          $WindowEnd = [Math]::Min($WindowStart + $PageSize - 1, $Items.Count - 1)
-        }
-        elseif ($Position -gt $WindowEnd) {
-          $WindowEnd = $Position
-          $WindowStart = [Math]::Max(0, $WindowEnd - $PageSize + 1)
-        }
+      if ($AllowReorder -and ((($isCtrl -and $key.Key -eq [System.ConsoleKey]::U)) -or $key.KeyChar -eq [char]21)) {
+        $hl = if ($Filtered.Count -gt 0) { $Filtered[$Position].Data } else { $null }
+        return [CliMenuResult]@{ Kind = 'Reorder'; Data = $null; Filter = $Filter; Highlight = $hl }
+      }
 
-        # NO ESCAPE (Setting the Cursor)
-        if ($VKeyCode -ne 27) {
-          # $StartPos = ([System.Console]::CursorTop - ($WindowEnd - $WindowStart)) - 2
-          [System.Console]::SetCursorPosition(0, $StartPos)
-
-          $RelativePos = $Position - $WindowStart
-          Build-CliMenu -Items $Items[$WindowStart..$WindowEnd] -RelativePosition $RelativePos -Multiselect $Multiselect -Selection $Selection -Offset $WindowStart -TotalCount $Items.Count
+      switch ($key.Key) {
+        ([System.ConsoleKey]::UpArrow) { $Position-- }
+        ([System.ConsoleKey]::DownArrow) { $Position++ }
+        ([System.ConsoleKey]::Home) { $Position = 0 }
+        ([System.ConsoleKey]::End) { $Position = $Filtered.Count - 1 }
+        ([System.ConsoleKey]::PageUp) { $Position -= $PageSize }
+        ([System.ConsoleKey]::PageDown) { $Position += $PageSize }
+        ([System.ConsoleKey]::Enter) {
+          if ($Filtered.Count -gt 0) {
+            return [CliMenuResult]@{ Kind = 'Select'; Data = $Filtered[$Position].Data; Filter = $Filter; Highlight = $Filtered[$Position].Data }
+          }
+        }
+        ([System.ConsoleKey]::Escape) {
+          if ($Filter) { $Filter = ''; $Filtered = Select-ApiMenuItem -Items $Items -Filter $Filter; $Position = 0; $WindowStart = 0 }
+          else { return [CliMenuResult]@{ Kind = 'Back'; Data = $null; Filter = ''; Highlight = $null } }
+        }
+        ([System.ConsoleKey]::Backspace) {
+          if ($Filter.Length -gt 0) {
+            $Filter = $Filter.Substring(0, $Filter.Length - 1)
+            $Filtered = Select-ApiMenuItem -Items $Items -Filter $Filter
+            $Position = 0; $WindowStart = 0
+          }
+        }
+        default {
+          $ch = $key.KeyChar
+          if (-not $isCtrl -and $ch -ge ' ' -and $ch -le '~') {
+            $Filter += $ch
+            $Filtered = Select-ApiMenuItem -Items $Items -Filter $Filter
+            $Position = 0; $WindowStart = 0
+          }
         }
       }
     }
-    finally {
-      [System.Console]::SetCursorPosition(0, $StartPos + ($WindowEnd - $WindowStart + 2))
-      [System.Console]::CursorVisible = $true
-    }
   }
-  else {
-    $Position = $null
-  }
-
-  if ($ReturnIndex -eq $false -and $null -ne $Position) {
-    if ($Multiselect) {
-      return $Items[$Selection].Data # return of menu item here
-    }
-    else {
-      return $Items[$Position].Data # return of menu item here
-    }
-  }
-  else {
-    if ($Multiselect) {
-      return $Selection
-    }
-    else {
-      return $Position
-    }
-  }
-}
-
-function Build-CliMenu {
-  param (
-    [Parameter(Mandatory = $true)]
-    [CliMenuItem[]]$Items,
-
-    [Parameter(Mandatory = $true)]
-    [int]$RelativePosition,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$Multiselect = $false,
-
-    [Parameter()]
-    [array]$Selection = @(),
-
-    [Parameter()]
-    [int]$Offset = 0,
-
-    [Parameter(Mandatory = $true)]
-    [int]$TotalCount
-  )
-
-  $ConsoleWidth = [System.Console]::WindowWidth
-
-  if ($Offset -gt 0) {
-    Write-ClearedLine -Text "   ... more above ..." -ForegroundColor ([System.ConsoleColor]::DarkGray) -ClearingWidth $ConsoleWidth
-  }
-  else {
-    Write-ClearedLine -Text "" -ClearingWidth $ConsoleWidth # empty line if no indicator, keeps alignment
-  }
-
-  for ($i = 0; $i -lt $Items.Count; $i++) {
-    $AbsoluteIndex = $i + $Offset
-    
-    if ($null -ne $Items[$i]) {
-      $Label = $Items[$i].Label
-
-      if ($Multiselect) {
-        if ($Selection -contains $AbsoluteIndex) {
-          $Label = '[x] ' + $Label
-        }
-        else { 
-          $Label = '[ ] ' + $Label
-        }
-      }
-
-      if ($i -eq $RelativePosition) {
-        Write-ClearedLine ">> $Label" -ForegroundColor ([System.ConsoleColor]::Green) -ClearingWidth $ConsoleWidth
-      }
-      else {
-        Write-ClearedLine "   $Label" -ClearingWidth $ConsoleWidth
-      }
-    }
-  }
-
-  # --- show "more below" indicator ---
-  if ($Offset + $Items.Count -lt $TotalCount) {
-    Write-ClearedLine "   ... more below ..." -ForegroundColor ([System.ConsoleColor]::DarkGray) -ClearingWidth $ConsoleWidth
-  }
-  else {
-    Write-ClearedLine "" -ClearingWidth $ConsoleWidth # empty line if no indicator, keeps alignment
+  finally {
+    [System.Console]::SetCursorPosition(0, $StartPos + $PageSize + 5)
+    [System.Console]::CursorVisible = $true
   }
 }
 
@@ -580,132 +616,121 @@ function RequestUriArgCompleter {
   $Requests | Where-Object { $_.GetUri() -like "$wordToComplete*" } | ForEach-Object { $_.GetUri() }
 }
 
-function Show-CollectionsMenu {
-  param (
-    [Parameter(Mandatory)]
-    [ApiConfig]
-    $ApiConfig,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$OrderByUsage = $false
-  )
-  
-  Show-ApiTrademark
-  
-  Write-Host "NOTE: Use Arrow Keys to navigate, Enter to approve/select and Esc to navigate back" -ForegroundColor ([System.ConsoleColor]::DarkGray)
-  Write-Host ""
-
-  if ($null -eq $ApiConfig.Collections.Values -or $ApiConfig.Collections.Values.Count -eq 0) {
-    Write-Warning "No collections and requests to display! Please make some requests first -> Invoke-ApiRequest..."
-    Write-Host ""
-    return
-  }
-
-  Write-ApiHeader "Requests grouped by Collection (Base Uri)"
-  if ($OrderByUsage) { $SortedCollections = $ApiConfig.Collections.Values | Sort-Object -Property @{Expression = "UsageCount"; Descending = $true }, @{Expression = "BaseUri"; Descending = $false } }
-  else { $SortedCollections = $ApiConfig.Collections.Values | Sort-Object -Property BaseUri }
-  
-  $CollectionItems = ConvertTo-CliMenuItems -Items $SortedCollections -LabelFunction { param($Col) return "$($Col.BaseUri.ToLower()) ($($Col.Requests.Count) Requests)" }
-  $SelectedCollection = Show-CliMenu -Items $CollectionItems
-  Clear-Host
-
-  if ($SelectedCollection) {
-    Show-RequestsMenu -ApiConfig $ApiConfig -Collection $SelectedCollection -OrderByUsage $OrderByUsage
-  }
-}
-
-function Show-RequestsMenu {
-  param (
-    [Parameter(Mandatory)]
-    [ApiConfig]
-    $ApiConfig,
-
-    [Parameter(Mandatory)]
-    [ApiCollection]
-    $Collection,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$OrderByUsage = $false
-  )
-
-  if ($null -eq $Collection.Requests.Values -or $Collection.Requests.Values.Count -eq 0) {
-    Write-Warning "No requests to display! Please make some requests first -> Invoke-ApiRequest..."
-    Write-Host ""
-
-    Show-CollectionsMenu -ApiConfig $ApiConfig -OrderByUsage $OrderByUsage
-    return
-  }
-
-  Write-ApiHeader "Requests for Base Uri '$Collection'"
-  Write-Host "Headers: $($Collection.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
-  Write-Host "Requests: $($Collection.Requests.Count)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
-  Write-Host ""
-
-  if ($OrderByUsage) { $SortedRequests = $Collection.Requests.Values | Sort-Object -Property @{Expression = "UsageCount"; Descending = $true }, @{Expression = "Path"; Descending = $false } }
-  else { $SortedRequests = $Collection.Requests.Values | Sort-Object -Property Path, Method }
-
-  $RequestItems = ConvertTo-CliMenuItems -Items $SortedRequests -LabelFunction { param($Req) return "$(ToFixedLength -Text $Req.Method.ToUpper() -Length 8) $($Req.Path) => (Usage: $($Req.UsageCount), Headers: $($Req.Headers.Count), Body: $($null -ne $Req.Body))" }
-  $SelectedRequest = Show-CliMenu -Items $RequestItems
-  Clear-Host
-
-  if ($SelectedRequest) {
-    Show-RequestDetailMenu -ApiConfig $ApiConfig -Collection $Collection -Request $SelectedRequest -OrderByUsage $OrderByUsage
-  }
-  else {
-    Show-CollectionsMenu -ApiConfig $ApiConfig -OrderByUsage $OrderByUsage
-  }
-}
-
 function Show-RequestDetailMenu {
+  [CmdletBinding()]
   param (
-    [Parameter(Mandatory)]
-    [ApiConfig]
-    $ApiConfig,
-
-    [Parameter(Mandatory)]
-    [ApiCollection]
-    $Collection,
-
-    [Parameter(Mandatory)]
-    [ApiRequest]
-    $Request,
-
-    [Parameter(Mandatory = $false)]
-    [bool]$OrderByUsage = $false
+    [Parameter(Mandatory)][ApiConfig]$ApiConfig,
+    [Parameter(Mandatory)][ApiCollection]$Collection,
+    [Parameter(Mandatory)][ApiRequest]$Request
   )
 
-  Write-ApiHeader "Actions for request '$Request'"
+  $bc = "Collections > $($Collection.BaseUri) > $($Request)"
   Write-Host "Method: $($Request.Method.ToUpper())" -ForegroundColor ([System.ConsoleColor]::DarkGray)
   Write-Host "Path: $($Request.Path)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
   Write-Host "Headers: $($Request.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
   Write-Host "Body: $($Request.Body | ConvertTo-Json -Depth 20 -Compress)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
   Write-Host "Usage count: $($Request.UsageCount)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
+  Write-Host "Favorite: $($Request.Favorite)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
   Write-Host ""
-  $ActionItems = ConvertTo-CliMenuItems -Items @("Run", "Clipboard", "Details", "Remove", "Cancel")
-  $Action = Show-CliMenu -Items $ActionItems
-  Clear-Host
 
-  switch ($Action) {
+  $actions = ConvertTo-CliMenuItems -Items @("Run", "Clipboard", "Details", "Remove", "Cancel")
+  $res = Show-CliMenu -Items $actions -Breadcrumb $bc
+  if ($res.Kind -ne 'Select') { return 'Back' }
+
+  switch ($res.Data) {
     "Run" {
       $Request | Invoke-ApiRequest
+      return 'Exit'
     }
     "Clipboard" {
       $Body = if ($Request.Body) { "-Body $(ConvertTo-Expression -Object $Request.Body -Expand -1)" } else { "" }
       $Headers = if ($Request.Headers) { "-Headers $(ConvertTo-Expression -Object $Request.Headers -Expand -1)" } else { "" }
       $PersistSessionCookie = if ($Request.PersistSession) { "-PersistSessionCookie" } else { "" }
-      $Command = "Invoke-ApiRequest -Uri '$($Request.GetUri())' -Method $($Request.Method) $Body $Headers $PersistSessionCookie" 
+      $Command = "Invoke-ApiRequest -Uri '$($Request.GetUri())' -Method $($Request.Method) $Body $Headers $PersistSessionCookie"
+      Set-Clipboard -Value $Command
       Write-Host "Selected command is now in your clipboard" -ForegroundColor ([System.ConsoleColor]::DarkGray)
       Write-Host $Command -ForegroundColor ([System.ConsoleColor]::DarkGray)
-      Set-Clipboard -Value $Command
+      return 'Exit'
     }
     "Details" {
       $Request
+      return 'Exit'
     }
     "Remove" {
       $Request | Remove-ApiRequest
+      return 'Exit'
     }
     Default {
-      Show-RequestsMenu -ApiConfig $ApiConfig -Collection $Collection -OrderByUsage $OrderByUsage
+      return 'Back'
+    }
+  }
+}
+
+function Invoke-ApiMenu {
+  [CmdletBinding()]
+  param (
+    [Parameter(Mandatory)][ApiConfig]$ApiConfig,
+    [Parameter(Mandatory = $false)][bool]$OrderByUsage = $false
+  )
+
+  $orderMode = if ($OrderByUsage) { 'Usage' } else { 'Name' }
+  $stack = [System.Collections.Generic.List[hashtable]]::new()
+  $stack.Add(@{ Name = 'Collections'; Filter = ''; Highlight = $null })
+
+  while ($stack.Count -gt 0) {
+    $frame = $stack[$stack.Count - 1]
+    Clear-Host
+
+    switch ($frame.Name) {
+      'Collections' {
+        Show-ApiTrademark
+        Write-Host "Use arrows to move, type to filter, Enter to select, Esc to go back." -ForegroundColor ([System.ConsoleColor]::DarkGray)
+        Write-Host ""
+
+        if ($null -eq $ApiConfig.Collections.Values -or $ApiConfig.Collections.Values.Count -eq 0) {
+          Write-Warning "No collections and requests to display! Please make some requests first -> Invoke-ApiRequest..."
+          return
+        }
+
+        $cols = Sort-ApiCollectionList -Collections @($ApiConfig.Collections.Values) -Mode $orderMode
+        $items = ConvertTo-CliMenuItems -Items $cols -LabelFunction { param($c) "$($c.BaseUri.ToLower()) ($($c.Requests.Count) Requests)" }
+        $res = Show-CliMenu -Items $items -Breadcrumb "Collections  [order: $orderMode]" `
+          -AllowReorder $true -InitialFilter $frame.Filter -HighlightData $frame.Highlight
+
+        switch ($res.Kind) {
+          'Reorder' { $orderMode = if ($orderMode -eq 'Name') { 'Usage' } else { 'Name' }; $frame.Filter = $res.Filter; $frame.Highlight = $res.Highlight }
+          'Select' { $stack.Add(@{ Name = 'Requests'; Collection = $res.Data; Filter = ''; Highlight = $null }) }
+          'Back' { $stack.RemoveAt($stack.Count - 1) }
+        }
+      }
+
+      'Requests' {
+        $col = $frame.Collection
+        Write-Host "Collection headers: $($col.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
+        Write-Host ""
+
+        $reqs = Sort-ApiRequestList -Requests @($col.Requests.Values) -Mode $orderMode
+        $items = ConvertTo-CliMenuItems -Items $reqs -LabelFunction {
+          param($r)
+          $star = if ($r.Favorite) { "$([char]0x2605) " } else { "  " }
+          "$star$(ToFixedLength -Text $r.Method.ToUpper() -Length 8) $($r.Path) => (Usage: $($r.UsageCount), Headers: $($r.Headers.Count), Body: $($null -ne $r.Body))"
+        }
+        $res = Show-CliMenu -Items $items -Breadcrumb "Collections > $($col.BaseUri)  [order: $orderMode]" `
+          -AllowFavorite $true -AllowReorder $true -InitialFilter $frame.Filter -HighlightData $frame.Highlight
+
+        switch ($res.Kind) {
+          'Reorder' { $orderMode = if ($orderMode -eq 'Name') { 'Usage' } else { 'Name' }; $frame.Filter = $res.Filter; $frame.Highlight = $res.Highlight }
+          'Favorite' { $res.Data.Favorite = -not $res.Data.Favorite; Save-ApiConfig -ApiConfig $ApiConfig; $frame.Filter = $res.Filter; $frame.Highlight = $res.Highlight }
+          'Select' { $stack.Add(@{ Name = 'Detail'; Collection = $col; Request = $res.Data; Filter = ''; Highlight = $null }) }
+          'Back' { $stack.RemoveAt($stack.Count - 1) }
+        }
+      }
+
+      'Detail' {
+        $nav = Show-RequestDetailMenu -ApiConfig $ApiConfig -Collection $frame.Collection -Request $frame.Request
+        if ($nav -eq 'Back') { $stack.RemoveAt($stack.Count - 1) }
+        else { $stack.Clear() }
+      }
     }
   }
 }
@@ -867,10 +892,7 @@ function Show-ApiRequest {
   )
 
   $ApiConfig = Get-ApiConfig
-
-  Clear-Host
-  
-  Show-CollectionsMenu -ApiConfig $ApiConfig -OrderByUsage $OrderByUsage
+  Invoke-ApiMenu -ApiConfig $ApiConfig -OrderByUsage:([bool]$OrderByUsage)
 }
 
 <#

@@ -1,7 +1,11 @@
 # Release Notes of Posht
 
-## 2.0.3
+## 2.1.0
 
+* Feat: CLI menu is now searchable — start typing to filter the current list (collections or requests)
+* Feat: mark requests as favorites with `Ctrl+F`; favorites are pinned to the top of their collection
+* Feat: toggle name ↔ usage ordering live inside the menu with `Ctrl+U`
+* Feat: reworked menu navigation (breadcrumb, consistent Esc/back) built on a cross-platform key reader that behaves the same on Windows and macOS
 * Fix: `Remove-ApiRequest` with `-Uri`/`-Method` (non-pipeline) threw due to a wrong `ApiRequest` constructor argument count
 * Fix: clipboard action in the CLI menu now correctly emits `-PersistSessionCookie` (read the wrong property before)
 * Fix: `-OrderByUsage` preference is no longer lost when navigating back through the CLI menu
