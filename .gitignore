@@ -1,5 +1,7 @@
 api-requests.json
 posht_requests.json
 
+docs/
+
 # Mac specific
 .DS_Store

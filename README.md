@@ -80,6 +80,24 @@ If you prefer a more menu like approach to browse trough existing collections an
 
 ![Posht CLI Menu](/assets/posht_cli_menu.png)
 
+The menu opens on the list of collections; select one to drill into its requests, and a request to see the actions (Run, Clipboard, Details, Remove). A breadcrumb at the top always shows where you are. The controls work the same on Windows, Linux and macOS:
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` | Move up / down (also `Home`, `End`, `PageUp`, `PageDown`) |
+| _type any text_ | Filter the current list live (case-insensitive substring match) — handy when a collection has hundreds of requests |
+| `Backspace` | Delete a character from the filter |
+| `Enter` | Select the highlighted entry / drill in |
+| `Esc` | Clear the filter if one is active, otherwise go back one level |
+| `Ctrl+F` | Toggle the highlighted **collection or request** as favorite |
+| `Ctrl+U` | Switch ordering between name and usage, live |
+
+**Search:** Start typing to narrow the current list. This works on both the collections screen and the requests screen.
+
+**Favorites:** Press `Ctrl+F` to star the highlighted entry (marked with `★`). It works on both the collections screen and the requests screen: favorite collections are pinned to the top of the collection list, and favorite requests to the top of their collection. Favorites persist in the config file, so re-running a request never loses its favorite status.
+
+**Live ordering:** Press `Ctrl+U` to flip between name-based and usage-based ordering without leaving the menu. `Show-ApiRequest -OrderByUsage` just sets the starting order.
+
 #### Authentication (Cookie based)
 
 - POST request to the auth endpoint and tell Posht to remember it (`-PersistSessionCookie` Parameter): `Invoke-ApiRequest -Method Post -Uri "https://foo.bar/auth" -Body @{ Username="admin"; Password="abc123" } -PersistSessionCookie`

@@ -1,0 +1,286 @@
+BeforeAll {
+  Import-Module "$PSScriptRoot/../Posht/Posht.psd1" -Force
+}
+
+Describe 'ApiRequest.Favorite' {
+  It 'defaults to false when absent from JSON' {
+    InModuleScope Posht {
+      $raw = @{ Method = 'Get'; BaseUri = 'http://x:80'; Path = '/a' }
+      $r = [ApiRequest]::new($raw)
+      $r.Favorite | Should -BeFalse
+    }
+  }
+
+  It 'reads true from JSON' {
+    InModuleScope Posht {
+      $raw = @{ Method = 'Get'; BaseUri = 'http://x:80'; Path = '/a'; Favorite = $true }
+      $r = [ApiRequest]::new($raw)
+      $r.Favorite | Should -BeTrue
+    }
+  }
+}
+
+Describe 'ApiConfig.AddRequest favorite preservation' {
+  It 'keeps Favorite and increments UsageCount when overwriting' {
+    InModuleScope Posht {
+      $cfg = [ApiConfig]::new()
+      $r1 = [ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, '')
+      $cfg.AddRequest($r1)
+      $key = $r1.GetCollectionKey()
+      $cfg.Collections['http://x:80'].Requests[$key].Favorite = $true
+
+      $r2 = [ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, '')
+      $cfg.AddRequest($r2)
+
+      $stored = $cfg.Collections['http://x:80'].Requests[$key]
+      $stored.Favorite    | Should -BeTrue
+      $stored.UsageCount  | Should -Be 2
+    }
+  }
+}
+
+Describe 'Select-ApiMenuItem' {
+  BeforeEach {
+    $script:items = InModuleScope Posht {
+      @(
+        [CliMenuItem]::new('GET /users', 1),
+        [CliMenuItem]::new('POST /users/login', 2),
+        [CliMenuItem]::new('GET /orders', 3)
+      )
+    }
+  }
+
+  It 'returns all items when filter is empty' {
+    InModuleScope Posht -Parameters @{ items = $script:items } {
+      param($items)
+      (Select-ApiMenuItem -Items $items -Filter '').Count | Should -Be 3
+    }
+  }
+
+  It 'matches substring case-insensitively' {
+    InModuleScope Posht -Parameters @{ items = $script:items } {
+      param($items)
+      $r = Select-ApiMenuItem -Items $items -Filter 'USER'
+      $r.Count | Should -Be 2
+      $r.Label | Should -Contain 'GET /users'
+      $r.Label | Should -Contain 'POST /users/login'
+    }
+  }
+
+  It 'returns empty when nothing matches' {
+    InModuleScope Posht -Parameters @{ items = $script:items } {
+      param($items)
+      (Select-ApiMenuItem -Items $items -Filter 'zzz').Count | Should -Be 0
+    }
+  }
+}
+
+Describe 'Invoke-SortApiRequestList' {
+  BeforeEach {
+    $script:reqs = InModuleScope Posht {
+      $a = [ApiRequest]::new(@{}, 'Get', 'http://x:80/aaa', $null, $false, $false, $false, ''); $a.UsageCount = 1
+      $b = [ApiRequest]::new(@{}, 'Get', 'http://x:80/bbb', $null, $false, $false, $false, ''); $b.UsageCount = 9
+      $c = [ApiRequest]::new(@{}, 'Get', 'http://x:80/ccc', $null, $false, $false, $false, ''); $c.UsageCount = 5; $c.Favorite = $true
+      @($a, $b, $c)
+    }
+  }
+
+  It 'puts favorites first, then name order' {
+    InModuleScope Posht -Parameters @{ reqs = $script:reqs } {
+      param($reqs)
+      $sorted = Invoke-SortApiRequestList -Requests $reqs -Mode 'Name'
+      $sorted[0].Path | Should -Be '/ccc'
+      $sorted[1].Path | Should -Be '/aaa'
+      $sorted[2].Path | Should -Be '/bbb'
+    }
+  }
+
+  It 'puts favorites first, then usage desc' {
+    InModuleScope Posht -Parameters @{ reqs = $script:reqs } {
+      param($reqs)
+      $sorted = Invoke-SortApiRequestList -Requests $reqs -Mode 'Usage'
+      $sorted[0].Path | Should -Be '/ccc'
+      $sorted[1].Path | Should -Be '/bbb'
+      $sorted[2].Path | Should -Be '/aaa'
+    }
+  }
+}
+
+Describe 'ApiCollection.Favorite' {
+  It 'defaults to false when absent from JSON' {
+    InModuleScope Posht {
+      $raw = @{ BaseUri = 'http://x:80'; Headers = @{}; Requests = @{} }
+      $c = [ApiCollection]::new($raw)
+      $c.Favorite | Should -BeFalse
+    }
+  }
+
+  It 'reads true from JSON' {
+    InModuleScope Posht {
+      $raw = @{ BaseUri = 'http://x:80'; Headers = @{}; Requests = @{}; Favorite = $true }
+      $c = [ApiCollection]::new($raw)
+      $c.Favorite | Should -BeTrue
+    }
+  }
+}
+
+Describe 'Invoke-SortApiCollectionList' {
+  BeforeEach {
+    $script:cols = InModuleScope Posht {
+      $c1 = [ApiCollection]::new('http://bbb:80', @{}); $c1.UsageCount = 2
+      $c2 = [ApiCollection]::new('http://aaa:80', @{}); $c2.UsageCount = 8
+      @($c1, $c2)
+    }
+  }
+
+  It 'orders by name ascending' {
+    InModuleScope Posht -Parameters @{ cols = $script:cols } {
+      param($cols)
+      (Invoke-SortApiCollectionList -Collections $cols -Mode 'Name')[0].BaseUri | Should -Be 'http://aaa:80'
+    }
+  }
+
+  It 'orders by usage descending' {
+    InModuleScope Posht -Parameters @{ cols = $script:cols } {
+      param($cols)
+      (Invoke-SortApiCollectionList -Collections $cols -Mode 'Usage')[0].BaseUri | Should -Be 'http://aaa:80'
+    }
+  }
+
+  It 'pins favorites to the top regardless of mode' {
+    InModuleScope Posht {
+      $c1 = [ApiCollection]::new('http://bbb:80', @{}); $c1.UsageCount = 9
+      $c2 = [ApiCollection]::new('http://aaa:80', @{}); $c2.UsageCount = 1; $c2.Favorite = $true
+      $byName = Invoke-SortApiCollectionList -Collections @($c1, $c2) -Mode 'Name'
+      $byName[0].BaseUri | Should -Be 'http://aaa:80'
+      $byUsage = Invoke-SortApiCollectionList -Collections @($c1, $c2) -Mode 'Usage'
+      $byUsage[0].BaseUri | Should -Be 'http://aaa:80'
+    }
+  }
+}
+
+Describe 'Invoke-ApiMenu empty collection' {
+  It 'does not descend into a collection that has no requests' {
+    InModuleScope Posht {
+      $cfg = [ApiConfig]::new()
+      $cfg.Collections['https://empty:443'] = [ApiCollection]::new('https://empty:443', @{})
+
+      $script:breadcrumbs = @()
+      $script:call = 0
+      Mock Show-CliMenu {
+        $script:breadcrumbs += $Breadcrumb
+        $script:call++
+        if ($script:call -eq 1) {
+          # Select the (only, empty) collection
+          return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data }
+        }
+        # Any later screen: go back to exit the loop
+        return [CliMenuResult]@{ Kind = 'Back'; Data = $null; Filter = ''; Highlight = $null }
+      }
+
+      Invoke-ApiMenu -ApiConfig $cfg -OrderByUsage:$false | Out-Null
+
+      # After selecting the empty collection, the next screen must still be the collections
+      # screen (breadcrumb "Collections  [order: ...]"), not the requests screen
+      # (breadcrumb "Collections > <baseUri> ...").
+      $script:breadcrumbs.Count | Should -BeGreaterThan 1
+      $script:breadcrumbs[1] | Should -BeLike 'Collections *'
+      $script:breadcrumbs[1] | Should -Not -BeLike 'Collections >*'
+    }
+  }
+}
+
+Describe 'Invoke-ApiRequestAction' {
+  It 'returns Details output separately from the nav token' {
+    InModuleScope Posht {
+      $r = [ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, '')
+      $res = Invoke-ApiRequestAction -Action 'Details' -Request $r
+      $res.Nav | Should -Be 'Exit'
+      $res.Output | Should -Be $r
+    }
+  }
+
+  It 'returns Back with no output for Cancel' {
+    InModuleScope Posht {
+      $r = [ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, '')
+      $res = Invoke-ApiRequestAction -Action 'Cancel' -Request $r
+      $res.Nav | Should -Be 'Back'
+      $res.Output | Should -BeNullOrEmpty
+    }
+  }
+}
+
+Describe 'Invoke-ApiRequestAction Remove' {
+  It 'removes the request from the collection and signals Removed' {
+    InModuleScope Posht {
+      Mock Save-ApiConfig {}
+      $cfg = [ApiConfig]::new()
+      $req = [ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, '')
+      $cfg.AddRequest($req)
+      $col = $cfg.Collections['http://x:80']
+
+      $res = Invoke-ApiRequestAction -Action 'Remove' -Request $req -Collection $col -ApiConfig $cfg
+
+      $res.Nav | Should -Be 'Removed'
+      $col.Requests.Count | Should -Be 0
+    }
+  }
+}
+
+Describe 'Invoke-ApiMenu remove navigation' {
+  # Drive the interactive loop: select collection -> select request -> Remove, then Back to exit.
+  # NOTE: the counters are reset inside InModuleScope because $script: vars used by the mock live
+  # in the module scope, not the test-file scope.
+
+  It 'returns to the request list when other requests remain' {
+    InModuleScope Posht {
+      $script:bc = @()
+      $script:call = 0
+      Mock Save-ApiConfig {}
+      $cfg = [ApiConfig]::new()
+      $cfg.AddRequest([ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, ''))
+      $cfg.AddRequest([ApiRequest]::new(@{}, 'Get', 'http://x:80/b', $null, $false, $false, $false, ''))
+
+      Mock Show-CliMenu {
+        $script:call++
+        $script:bc += $Breadcrumb
+        switch ($script:call) {
+          1 { return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data } }
+          2 { return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data } }
+          3 { $rm = $Items | Where-Object { $_.Data -eq 'Remove' }; return [CliMenuResult]@{ Kind = 'Select'; Data = $rm.Data; Filter = ''; Highlight = $rm.Data } }
+          default { return [CliMenuResult]@{ Kind = 'Back'; Data = $null; Filter = ''; Highlight = $null } }
+        }
+      }
+
+      Invoke-ApiMenu -ApiConfig $cfg -OrderByUsage:$false | Out-Null
+
+      $script:bc[3] | Should -BeLike 'Collections >*'
+    }
+  }
+
+  It 'returns to the collection list when the last request was removed' {
+    InModuleScope Posht {
+      $script:bc = @()
+      $script:call = 0
+      Mock Save-ApiConfig {}
+      $cfg = [ApiConfig]::new()
+      $cfg.AddRequest([ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, ''))
+
+      Mock Show-CliMenu {
+        $script:call++
+        $script:bc += $Breadcrumb
+        switch ($script:call) {
+          1 { return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data } }
+          2 { return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data } }
+          3 { $rm = $Items | Where-Object { $_.Data -eq 'Remove' }; return [CliMenuResult]@{ Kind = 'Select'; Data = $rm.Data; Filter = ''; Highlight = $rm.Data } }
+          default { return [CliMenuResult]@{ Kind = 'Back'; Data = $null; Filter = ''; Highlight = $null } }
+        }
+      }
+
+      Invoke-ApiMenu -ApiConfig $cfg -OrderByUsage:$false | Out-Null
+
+      $script:bc[3] | Should -BeLike 'Collections *'
+      $script:bc[3] | Should -Not -BeLike 'Collections >*'
+    }
+  }
+}
