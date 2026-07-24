@@ -159,6 +159,37 @@ Describe 'Invoke-SortApiCollectionList' {
   }
 }
 
+Describe 'Invoke-ApiMenu empty collection' {
+  It 'does not descend into a collection that has no requests' {
+    InModuleScope Posht {
+      $cfg = [ApiConfig]::new()
+      $cfg.Collections['https://empty:443'] = [ApiCollection]::new('https://empty:443', @{})
+
+      $script:breadcrumbs = @()
+      $script:call = 0
+      Mock Show-CliMenu {
+        $script:breadcrumbs += $Breadcrumb
+        $script:call++
+        if ($script:call -eq 1) {
+          # Select the (only, empty) collection
+          return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data }
+        }
+        # Any later screen: go back to exit the loop
+        return [CliMenuResult]@{ Kind = 'Back'; Data = $null; Filter = ''; Highlight = $null }
+      }
+
+      Invoke-ApiMenu -ApiConfig $cfg -OrderByUsage:$false | Out-Null
+
+      # After selecting the empty collection, the next screen must still be the collections
+      # screen (breadcrumb "Collections  [order: ...]"), not the requests screen
+      # (breadcrumb "Collections > <baseUri> ...").
+      $script:breadcrumbs.Count | Should -BeGreaterThan 1
+      $script:breadcrumbs[1] | Should -BeLike 'Collections *'
+      $script:breadcrumbs[1] | Should -Not -BeLike 'Collections >*'
+    }
+  }
+}
+
 Describe 'Invoke-ApiRequestAction' {
   It 'returns Details output separately from the nav token' {
     InModuleScope Posht {

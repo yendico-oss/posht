@@ -718,7 +718,15 @@ function Invoke-ApiMenu {
         switch ($res.Kind) {
           'Reorder' { $orderMode = if ($orderMode -eq 'Name') { 'Usage' } else { 'Name' }; $frame.Filter = $res.Filter; $frame.Highlight = $res.Highlight }
           'Favorite' { $res.Data.Favorite = -not $res.Data.Favorite; Save-ApiConfig -ApiConfig $ApiConfig; $frame.Filter = $res.Filter; $frame.Highlight = $res.Highlight }
-          'Select' { $stack.Add(@{ Name = 'Requests'; Collection = $res.Data; Filter = ''; Highlight = $null }) }
+          'Select' {
+            if ($res.Data.Requests.Count -gt 0) {
+              $stack.Add(@{ Name = 'Requests'; Collection = $res.Data; Filter = ''; Highlight = $null })
+            }
+            else {
+              # Empty collection: nothing to drill into. Stay on the collections screen and keep the filter/position.
+              $frame.Filter = $res.Filter; $frame.Highlight = $res.Highlight
+            }
+          }
           'Back' { $stack.RemoveAt($stack.Count - 1) }
         }
       }
