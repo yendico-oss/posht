@@ -77,11 +77,13 @@ class ApiCollection {
   [hashtable]$Headers
   [hashtable]$Requests
   [int]$UsageCount = 1
+  [bool]$Favorite = $false
 
   ApiCollection($ApiCollectionRaw) {
     # from json
     $this.BaseUri = $ApiCollectionRaw.BaseUri
     $this.Headers = $ApiCollectionRaw.Headers
+    $this.Favorite = [bool]$ApiCollectionRaw.Favorite
     $this.Requests = [hashtable]@{}
 
     foreach ($Request in $ApiCollectionRaw.Requests.GetEnumerator()) {
@@ -384,12 +386,14 @@ function Invoke-SortApiCollectionList {
 
   if (-not $Collections) { return @() }
 
+  $favFirst = @{ Expression = { -not $_.Favorite } } # $false (favorite) sorts before $true
   if ($Mode -eq 'Usage') {
-    return @($Collections | Sort-Object -Stable -Property `
+    return @($Collections | Sort-Object -Stable -Property $favFirst,
       @{ Expression = 'UsageCount'; Descending = $true },
       @{ Expression = 'BaseUri'; Descending = $false })
   }
-  return @($Collections | Sort-Object -Stable -Property BaseUri)
+  return @($Collections | Sort-Object -Stable -Property $favFirst,
+    @{ Expression = 'BaseUri'; Descending = $false })
 }
 
 function Write-ClearedLine {
@@ -703,12 +707,17 @@ function Invoke-ApiMenu {
         }
 
         $cols = Invoke-SortApiCollectionList -Collections @($ApiConfig.Collections.Values) -Mode $orderMode
-        $items = ConvertTo-CliMenuItems -Items $cols -LabelFunction { param($c) "$($c.BaseUri.ToLower()) ($($c.Requests.Count) Requests)" }
+        $items = ConvertTo-CliMenuItems -Items $cols -LabelFunction {
+          param($c)
+          $star = if ($c.Favorite) { "$([char]0x2605) " } else { "  " }
+          "$star$($c.BaseUri.ToLower()) ($($c.Requests.Count) Requests)"
+        }
         $res = Show-CliMenu -Items $items -Breadcrumb "Collections  [order: $orderMode]" `
-          -AllowReorder $true -InitialFilter $frame.Filter -HighlightData $frame.Highlight
+          -AllowFavorite $true -AllowReorder $true -InitialFilter $frame.Filter -HighlightData $frame.Highlight
 
         switch ($res.Kind) {
           'Reorder' { $orderMode = if ($orderMode -eq 'Name') { 'Usage' } else { 'Name' }; $frame.Filter = $res.Filter; $frame.Highlight = $res.Highlight }
+          'Favorite' { $res.Data.Favorite = -not $res.Data.Favorite; Save-ApiConfig -ApiConfig $ApiConfig; $frame.Filter = $res.Filter; $frame.Highlight = $res.Highlight }
           'Select' { $stack.Add(@{ Name = 'Requests'; Collection = $res.Data; Filter = ''; Highlight = $null }) }
           'Back' { $stack.RemoveAt($stack.Count - 1) }
         }

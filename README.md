@@ -89,12 +89,12 @@ The menu opens on the list of collections; select one to drill into its requests
 | `Backspace` | Delete a character from the filter |
 | `Enter` | Select the highlighted entry / drill in |
 | `Esc` | Clear the filter if one is active, otherwise go back one level |
-| `Ctrl+F` | Toggle a request as **favorite** (on the requests screen) |
+| `Ctrl+F` | Toggle the highlighted **collection or request** as favorite |
 | `Ctrl+U` | Switch ordering between name and usage, live |
 
 **Search:** Start typing to narrow the current list. This works on both the collections screen and the requests screen.
 
-**Favorites:** Press `Ctrl+F` to star the highlighted request (marked with `★`). Favorites are pinned to the top of their collection and persist in the config file, so re-running a request never loses its favorite status.
+**Favorites:** Press `Ctrl+F` to star the highlighted entry (marked with `★`). It works on both the collections screen and the requests screen: favorite collections are pinned to the top of the collection list, and favorite requests to the top of their collection. Favorites persist in the config file, so re-running a request never loses its favorite status.
 
 **Live ordering:** Press `Ctrl+U` to flip between name-based and usage-based ordering without leaving the menu. `Show-ApiRequest -OrderByUsage` just sets the starting order.
 

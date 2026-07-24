@@ -3,7 +3,7 @@
 ## 2.1.0
 
 * Feat: CLI menu is now searchable — start typing to filter the current list (collections or requests)
-* Feat: mark requests as favorites with `Ctrl+F`; favorites are pinned to the top of their collection
+* Feat: mark collections and requests as favorites with `Ctrl+F`; favorites are pinned to the top of their list
 * Feat: toggle name ↔ usage ordering live inside the menu with `Ctrl+U`
 * Feat: reworked menu navigation (breadcrumb, consistent Esc/back) built on a cross-platform key reader that behaves the same on Windows and macOS
 * Fix: `Remove-ApiRequest` with `-Uri`/`-Method` (non-pipeline) threw due to a wrong `ApiRequest` constructor argument count

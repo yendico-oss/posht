@@ -75,7 +75,7 @@ Describe 'Select-ApiMenuItem' {
   }
 }
 
-Describe 'Sort-ApiRequestList' {
+Describe 'Invoke-SortApiRequestList' {
   BeforeEach {
     $script:reqs = InModuleScope Posht {
       $a = [ApiRequest]::new(@{}, 'Get', 'http://x:80/aaa', $null, $false, $false, $false, ''); $a.UsageCount = 1
@@ -88,7 +88,7 @@ Describe 'Sort-ApiRequestList' {
   It 'puts favorites first, then name order' {
     InModuleScope Posht -Parameters @{ reqs = $script:reqs } {
       param($reqs)
-      $sorted = Sort-ApiRequestList -Requests $reqs -Mode 'Name'
+      $sorted = Invoke-SortApiRequestList -Requests $reqs -Mode 'Name'
       $sorted[0].Path | Should -Be '/ccc'
       $sorted[1].Path | Should -Be '/aaa'
       $sorted[2].Path | Should -Be '/bbb'
@@ -98,7 +98,7 @@ Describe 'Sort-ApiRequestList' {
   It 'puts favorites first, then usage desc' {
     InModuleScope Posht -Parameters @{ reqs = $script:reqs } {
       param($reqs)
-      $sorted = Sort-ApiRequestList -Requests $reqs -Mode 'Usage'
+      $sorted = Invoke-SortApiRequestList -Requests $reqs -Mode 'Usage'
       $sorted[0].Path | Should -Be '/ccc'
       $sorted[1].Path | Should -Be '/bbb'
       $sorted[2].Path | Should -Be '/aaa'
@@ -106,7 +106,25 @@ Describe 'Sort-ApiRequestList' {
   }
 }
 
-Describe 'Sort-ApiCollectionList' {
+Describe 'ApiCollection.Favorite' {
+  It 'defaults to false when absent from JSON' {
+    InModuleScope Posht {
+      $raw = @{ BaseUri = 'http://x:80'; Headers = @{}; Requests = @{} }
+      $c = [ApiCollection]::new($raw)
+      $c.Favorite | Should -BeFalse
+    }
+  }
+
+  It 'reads true from JSON' {
+    InModuleScope Posht {
+      $raw = @{ BaseUri = 'http://x:80'; Headers = @{}; Requests = @{}; Favorite = $true }
+      $c = [ApiCollection]::new($raw)
+      $c.Favorite | Should -BeTrue
+    }
+  }
+}
+
+Describe 'Invoke-SortApiCollectionList' {
   BeforeEach {
     $script:cols = InModuleScope Posht {
       $c1 = [ApiCollection]::new('http://bbb:80', @{}); $c1.UsageCount = 2
@@ -118,14 +136,25 @@ Describe 'Sort-ApiCollectionList' {
   It 'orders by name ascending' {
     InModuleScope Posht -Parameters @{ cols = $script:cols } {
       param($cols)
-      (Sort-ApiCollectionList -Collections $cols -Mode 'Name')[0].BaseUri | Should -Be 'http://aaa:80'
+      (Invoke-SortApiCollectionList -Collections $cols -Mode 'Name')[0].BaseUri | Should -Be 'http://aaa:80'
     }
   }
 
   It 'orders by usage descending' {
     InModuleScope Posht -Parameters @{ cols = $script:cols } {
       param($cols)
-      (Sort-ApiCollectionList -Collections $cols -Mode 'Usage')[0].BaseUri | Should -Be 'http://aaa:80'
+      (Invoke-SortApiCollectionList -Collections $cols -Mode 'Usage')[0].BaseUri | Should -Be 'http://aaa:80'
+    }
+  }
+
+  It 'pins favorites to the top regardless of mode' {
+    InModuleScope Posht {
+      $c1 = [ApiCollection]::new('http://bbb:80', @{}); $c1.UsageCount = 9
+      $c2 = [ApiCollection]::new('http://aaa:80', @{}); $c2.UsageCount = 1; $c2.Favorite = $true
+      $byName = Invoke-SortApiCollectionList -Collections @($c1, $c2) -Mode 'Name'
+      $byName[0].BaseUri | Should -Be 'http://aaa:80'
+      $byUsage = Invoke-SortApiCollectionList -Collections @($c1, $c2) -Mode 'Usage'
+      $byUsage[0].BaseUri | Should -Be 'http://aaa:80'
     }
   }
 }
