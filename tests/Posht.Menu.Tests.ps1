@@ -209,3 +209,78 @@ Describe 'Invoke-ApiRequestAction' {
     }
   }
 }
+
+Describe 'Invoke-ApiRequestAction Remove' {
+  It 'removes the request from the collection and signals Removed' {
+    InModuleScope Posht {
+      Mock Save-ApiConfig {}
+      $cfg = [ApiConfig]::new()
+      $req = [ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, '')
+      $cfg.AddRequest($req)
+      $col = $cfg.Collections['http://x:80']
+
+      $res = Invoke-ApiRequestAction -Action 'Remove' -Request $req -Collection $col -ApiConfig $cfg
+
+      $res.Nav | Should -Be 'Removed'
+      $col.Requests.Count | Should -Be 0
+    }
+  }
+}
+
+Describe 'Invoke-ApiMenu remove navigation' {
+  # Drive the interactive loop: select collection -> select request -> Remove, then Back to exit.
+  # NOTE: the counters are reset inside InModuleScope because $script: vars used by the mock live
+  # in the module scope, not the test-file scope.
+
+  It 'returns to the request list when other requests remain' {
+    InModuleScope Posht {
+      $script:bc = @()
+      $script:call = 0
+      Mock Save-ApiConfig {}
+      $cfg = [ApiConfig]::new()
+      $cfg.AddRequest([ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, ''))
+      $cfg.AddRequest([ApiRequest]::new(@{}, 'Get', 'http://x:80/b', $null, $false, $false, $false, ''))
+
+      Mock Show-CliMenu {
+        $script:call++
+        $script:bc += $Breadcrumb
+        switch ($script:call) {
+          1 { return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data } }
+          2 { return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data } }
+          3 { $rm = $Items | Where-Object { $_.Data -eq 'Remove' }; return [CliMenuResult]@{ Kind = 'Select'; Data = $rm.Data; Filter = ''; Highlight = $rm.Data } }
+          default { return [CliMenuResult]@{ Kind = 'Back'; Data = $null; Filter = ''; Highlight = $null } }
+        }
+      }
+
+      Invoke-ApiMenu -ApiConfig $cfg -OrderByUsage:$false | Out-Null
+
+      $script:bc[3] | Should -BeLike 'Collections >*'
+    }
+  }
+
+  It 'returns to the collection list when the last request was removed' {
+    InModuleScope Posht {
+      $script:bc = @()
+      $script:call = 0
+      Mock Save-ApiConfig {}
+      $cfg = [ApiConfig]::new()
+      $cfg.AddRequest([ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, ''))
+
+      Mock Show-CliMenu {
+        $script:call++
+        $script:bc += $Breadcrumb
+        switch ($script:call) {
+          1 { return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data } }
+          2 { return [CliMenuResult]@{ Kind = 'Select'; Data = $Items[0].Data; Filter = ''; Highlight = $Items[0].Data } }
+          3 { $rm = $Items | Where-Object { $_.Data -eq 'Remove' }; return [CliMenuResult]@{ Kind = 'Select'; Data = $rm.Data; Filter = ''; Highlight = $rm.Data } }
+          default { return [CliMenuResult]@{ Kind = 'Back'; Data = $null; Filter = ''; Highlight = $null } }
+        }
+      }
+
+      Invoke-ApiMenu -ApiConfig $cfg -OrderByUsage:$false | Out-Null
+
+      $script:bc[3] | Should -BeLike 'Collections *'
+      $script:bc[3] | Should -Not -BeLike 'Collections >*'
+    }
+  }
+}

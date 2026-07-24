@@ -5,7 +5,6 @@ $Script:ApiConfigFileName = "posht.json"
 $Script:ApiConfigFolder = ".posht"
 $Script:ApiConfigFileVersion = 2
 $Script:ApiTitleForegroundColor = [System.ConsoleColor]::Magenta
-$Script:ApiTitleBackgroundColor = [System.ConsoleColor]::Black
 
 #endregion
 
@@ -559,13 +558,13 @@ function Show-CliMenu {
 function Show-ApiTrademark {
  
   
-  Write-Host "    ____             __    __     __                                  ___          " -ForegroundColor $Script:ApiTitleForegroundColor -BackgroundColor $Script:ApiTitleBackgroundColor
-  Write-Host "   / __ \____  _____/ /_  / /_   / /_  __  __   __  _____  ____  ____/ (_)________ " -ForegroundColor $Script:ApiTitleForegroundColor -BackgroundColor $Script:ApiTitleBackgroundColor
-  Write-Host "  / /_/ / __ \/ ___/ __ \/ __/  / __ \/ / / /  / / / / _ \/ __ \/ __  / / ___/ __ \" -ForegroundColor $Script:ApiTitleForegroundColor -BackgroundColor $Script:ApiTitleBackgroundColor
-  Write-Host " / ____/ /_/ (__  ) / / / /_   / /_/ / /_/ /  / /_/ /  __/ / / / /_/ / / /__/ /_/ /" -ForegroundColor $Script:ApiTitleForegroundColor -BackgroundColor $Script:ApiTitleBackgroundColor
-  Write-Host "/_/    \____/____/_/ /_/\__/  /_.___/\__, /   \__, /\___/_/ /_/\__,_/_/\___/\____/ " -ForegroundColor $Script:ApiTitleForegroundColor -BackgroundColor $Script:ApiTitleBackgroundColor
-  Write-Host "                                    /____/   /____/                                " -ForegroundColor $Script:ApiTitleForegroundColor -BackgroundColor $Script:ApiTitleBackgroundColor
-  Write-Host "                                                                                   " -ForegroundColor $Script:ApiTitleForegroundColor -BackgroundColor $Script:ApiTitleBackgroundColor
+  Write-Host "    ____             __    __     __                                  ___          " -ForegroundColor $Script:ApiTitleForegroundColor
+  Write-Host "   / __ \____  _____/ /_  / /_   / /_  __  __   __  _____  ____  ____/ (_)________ " -ForegroundColor $Script:ApiTitleForegroundColor
+  Write-Host "  / /_/ / __ \/ ___/ __ \/ __/  / __ \/ / / /  / / / / _ \/ __ \/ __  / / ___/ __ \" -ForegroundColor $Script:ApiTitleForegroundColor
+  Write-Host " / ____/ /_/ (__  ) / / / /_   / /_/ / /_/ /  / /_/ /  __/ / / / /_/ / / /__/ /_/ /" -ForegroundColor $Script:ApiTitleForegroundColor
+  Write-Host "/_/    \____/____/_/ /_/\__/  /_.___/\__, /   \__, /\___/_/ /_/\__,_/_/\___/\____/ " -ForegroundColor $Script:ApiTitleForegroundColor
+  Write-Host "                                    /____/   /____/                                " -ForegroundColor $Script:ApiTitleForegroundColor
+  Write-Host "                                                                                   " -ForegroundColor $Script:ApiTitleForegroundColor
   Write-Host ""
 }
 
@@ -624,10 +623,12 @@ function Invoke-ApiRequestAction {
   [CmdletBinding()]
   param (
     [Parameter(Mandatory)][string]$Action,
-    [Parameter(Mandatory)][ApiRequest]$Request
+    [Parameter(Mandatory)][ApiRequest]$Request,
+    [Parameter(Mandatory = $false)][ApiCollection]$Collection,
+    [Parameter(Mandatory = $false)][ApiConfig]$ApiConfig
   )
 
-  # Returns a hashtable @{ Nav = 'Back'|'Exit'; Output = <data to render after the menu is cleared> }
+  # Returns a hashtable @{ Nav = 'Back'|'Exit'|'Removed'; Output = <data to render after the menu is cleared> }
   # Data output (response, details, messages) is kept separate from the navigation token so the
   # caller can display it on a cleared screen instead of swallowing it into the return value.
   switch ($Action) {
@@ -646,8 +647,13 @@ function Invoke-ApiRequestAction {
       return @{ Nav = 'Exit'; Output = $Request }
     }
     "Remove" {
-      $Request | Remove-ApiRequest
-      return @{ Nav = 'Exit'; Output = "Removed request $($Request)" }
+      # Remove from the in-memory model (and persist) so the menu can keep showing an up-to-date
+      # list. Going through Remove-ApiRequest would round-trip a separate config from disk and
+      # leave the menu's in-memory copy stale.
+      if ($Collection) { $Collection.Requests.Remove($Request.GetCollectionKey()) }
+      if ($ApiConfig) { Save-ApiConfig -ApiConfig $ApiConfig }
+      # No Output: the menu stays open and the request visibly disappears from the re-rendered list.
+      return @{ Nav = 'Removed'; Output = $null }
     }
     Default {
       return @{ Nav = 'Back'; Output = $null }
@@ -676,7 +682,7 @@ function Show-RequestDetailMenu {
   $res = Show-CliMenu -Items $actions -Breadcrumb $bc
   if ($res.Kind -ne 'Select') { return @{ Nav = 'Back'; Output = $null } }
 
-  return (Invoke-ApiRequestAction -Action $res.Data -Request $Request)
+  return (Invoke-ApiRequestAction -Action $res.Data -Request $Request -Collection $Collection -ApiConfig $ApiConfig)
 }
 
 function Invoke-ApiMenu {
@@ -756,8 +762,18 @@ function Invoke-ApiMenu {
       'Detail' {
         $r = Show-RequestDetailMenu -ApiConfig $ApiConfig -Collection $frame.Collection -Request $frame.Request
         if ($null -ne $r.Output) { $pendingOutput = $r.Output }
-        if ($r.Nav -eq 'Back') { $stack.RemoveAt($stack.Count - 1) }
-        else { $stack.Clear() }
+        switch ($r.Nav) {
+          'Back' { $stack.RemoveAt($stack.Count - 1) }
+          'Removed' {
+            # Leave the detail screen back to the request list; if that was the collection's last
+            # request, also leave the (now empty) request list back to the collection list.
+            $stack.RemoveAt($stack.Count - 1)
+            if ($frame.Collection.Requests.Count -eq 0 -and $stack.Count -gt 0) {
+              $stack.RemoveAt($stack.Count - 1)
+            }
+          }
+          default { $stack.Clear() } # 'Exit' (Run / Clipboard / Details)
+        }
       }
     }
   }
