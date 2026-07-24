@@ -349,7 +349,7 @@ function Select-ApiMenuItem {
   return @($Items | Where-Object { $_.Label.ToLower().Contains($needle) })
 }
 
-function Sort-ApiRequestList {
+function Invoke-SortApiRequestList {
   param (
     [Parameter(Mandatory = $false)]
     [object[]]$Requests,
@@ -372,7 +372,7 @@ function Sort-ApiRequestList {
     @{ Expression = 'Method'; Descending = $false })
 }
 
-function Sort-ApiCollectionList {
+function Invoke-SortApiCollectionList {
   param (
     [Parameter(Mandatory = $false)]
     [object[]]$Collections,
@@ -616,6 +616,41 @@ function RequestUriArgCompleter {
   $Requests | Where-Object { $_.GetUri() -like "$wordToComplete*" } | ForEach-Object { $_.GetUri() }
 }
 
+function Invoke-ApiRequestAction {
+  [CmdletBinding()]
+  param (
+    [Parameter(Mandatory)][string]$Action,
+    [Parameter(Mandatory)][ApiRequest]$Request
+  )
+
+  # Returns a hashtable @{ Nav = 'Back'|'Exit'; Output = <data to render after the menu is cleared> }
+  # Data output (response, details, messages) is kept separate from the navigation token so the
+  # caller can display it on a cleared screen instead of swallowing it into the return value.
+  switch ($Action) {
+    "Run" {
+      return @{ Nav = 'Exit'; Output = ($Request | Invoke-ApiRequest) }
+    }
+    "Clipboard" {
+      $Body = if ($Request.Body) { "-Body $(ConvertTo-Expression -Object $Request.Body -Expand -1)" } else { "" }
+      $Headers = if ($Request.Headers) { "-Headers $(ConvertTo-Expression -Object $Request.Headers -Expand -1)" } else { "" }
+      $PersistSessionCookie = if ($Request.PersistSession) { "-PersistSessionCookie" } else { "" }
+      $Command = "Invoke-ApiRequest -Uri '$($Request.GetUri())' -Method $($Request.Method) $Body $Headers $PersistSessionCookie"
+      Set-Clipboard -Value $Command
+      return @{ Nav = 'Exit'; Output = @("Selected command is now in your clipboard:", $Command) }
+    }
+    "Details" {
+      return @{ Nav = 'Exit'; Output = $Request }
+    }
+    "Remove" {
+      $Request | Remove-ApiRequest
+      return @{ Nav = 'Exit'; Output = "Removed request $($Request)" }
+    }
+    Default {
+      return @{ Nav = 'Back'; Output = $null }
+    }
+  }
+}
+
 function Show-RequestDetailMenu {
   [CmdletBinding()]
   param (
@@ -635,35 +670,9 @@ function Show-RequestDetailMenu {
 
   $actions = ConvertTo-CliMenuItems -Items @("Run", "Clipboard", "Details", "Remove", "Cancel")
   $res = Show-CliMenu -Items $actions -Breadcrumb $bc
-  if ($res.Kind -ne 'Select') { return 'Back' }
+  if ($res.Kind -ne 'Select') { return @{ Nav = 'Back'; Output = $null } }
 
-  switch ($res.Data) {
-    "Run" {
-      $Request | Invoke-ApiRequest
-      return 'Exit'
-    }
-    "Clipboard" {
-      $Body = if ($Request.Body) { "-Body $(ConvertTo-Expression -Object $Request.Body -Expand -1)" } else { "" }
-      $Headers = if ($Request.Headers) { "-Headers $(ConvertTo-Expression -Object $Request.Headers -Expand -1)" } else { "" }
-      $PersistSessionCookie = if ($Request.PersistSession) { "-PersistSessionCookie" } else { "" }
-      $Command = "Invoke-ApiRequest -Uri '$($Request.GetUri())' -Method $($Request.Method) $Body $Headers $PersistSessionCookie"
-      Set-Clipboard -Value $Command
-      Write-Host "Selected command is now in your clipboard" -ForegroundColor ([System.ConsoleColor]::DarkGray)
-      Write-Host $Command -ForegroundColor ([System.ConsoleColor]::DarkGray)
-      return 'Exit'
-    }
-    "Details" {
-      $Request
-      return 'Exit'
-    }
-    "Remove" {
-      $Request | Remove-ApiRequest
-      return 'Exit'
-    }
-    Default {
-      return 'Back'
-    }
-  }
+  return (Invoke-ApiRequestAction -Action $res.Data -Request $Request)
 }
 
 function Invoke-ApiMenu {
@@ -676,6 +685,7 @@ function Invoke-ApiMenu {
   $orderMode = if ($OrderByUsage) { 'Usage' } else { 'Name' }
   $stack = [System.Collections.Generic.List[hashtable]]::new()
   $stack.Add(@{ Name = 'Collections'; Filter = ''; Highlight = $null })
+  $pendingOutput = $null
 
   while ($stack.Count -gt 0) {
     $frame = $stack[$stack.Count - 1]
@@ -692,7 +702,7 @@ function Invoke-ApiMenu {
           return
         }
 
-        $cols = Sort-ApiCollectionList -Collections @($ApiConfig.Collections.Values) -Mode $orderMode
+        $cols = Invoke-SortApiCollectionList -Collections @($ApiConfig.Collections.Values) -Mode $orderMode
         $items = ConvertTo-CliMenuItems -Items $cols -LabelFunction { param($c) "$($c.BaseUri.ToLower()) ($($c.Requests.Count) Requests)" }
         $res = Show-CliMenu -Items $items -Breadcrumb "Collections  [order: $orderMode]" `
           -AllowReorder $true -InitialFilter $frame.Filter -HighlightData $frame.Highlight
@@ -709,7 +719,7 @@ function Invoke-ApiMenu {
         Write-Host "Collection headers: $($col.Headers | ConvertTo-Json -Depth 2 -Compress)" -ForegroundColor ([System.ConsoleColor]::DarkGray)
         Write-Host ""
 
-        $reqs = Sort-ApiRequestList -Requests @($col.Requests.Values) -Mode $orderMode
+        $reqs = Invoke-SortApiRequestList -Requests @($col.Requests.Values) -Mode $orderMode
         $items = ConvertTo-CliMenuItems -Items $reqs -LabelFunction {
           param($r)
           $star = if ($r.Favorite) { "$([char]0x2605) " } else { "  " }
@@ -727,12 +737,18 @@ function Invoke-ApiMenu {
       }
 
       'Detail' {
-        $nav = Show-RequestDetailMenu -ApiConfig $ApiConfig -Collection $frame.Collection -Request $frame.Request
-        if ($nav -eq 'Back') { $stack.RemoveAt($stack.Count - 1) }
+        $r = Show-RequestDetailMenu -ApiConfig $ApiConfig -Collection $frame.Collection -Request $frame.Request
+        if ($null -ne $r.Output) { $pendingOutput = $r.Output }
+        if ($r.Nav -eq 'Back') { $stack.RemoveAt($stack.Count - 1) }
         else { $stack.Clear() }
       }
     }
   }
+
+  # Menu has been left (any exit path): clear the last frame, then render any pending output
+  # (a Run response, request details, or a clipboard/remove message) on a clean screen.
+  Clear-Host
+  if ($null -ne $pendingOutput) { $pendingOutput }
 }
 
 #endregion

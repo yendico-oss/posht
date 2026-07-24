@@ -129,3 +129,23 @@ Describe 'Sort-ApiCollectionList' {
     }
   }
 }
+
+Describe 'Invoke-ApiRequestAction' {
+  It 'returns Details output separately from the nav token' {
+    InModuleScope Posht {
+      $r = [ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, '')
+      $res = Invoke-ApiRequestAction -Action 'Details' -Request $r
+      $res.Nav | Should -Be 'Exit'
+      $res.Output | Should -Be $r
+    }
+  }
+
+  It 'returns Back with no output for Cancel' {
+    InModuleScope Posht {
+      $r = [ApiRequest]::new(@{}, 'Get', 'http://x:80/a', $null, $false, $false, $false, '')
+      $res = Invoke-ApiRequestAction -Action 'Cancel' -Request $r
+      $res.Nav | Should -Be 'Back'
+      $res.Output | Should -BeNullOrEmpty
+    }
+  }
+}
